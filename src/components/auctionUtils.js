@@ -8,67 +8,39 @@ export const imgProps = (url) => {
 // ─── Currency format ─────────────────────────────────────────────────────────
 export const fmt = (n) => `₹${Number(n).toLocaleString("en-IN")}`;
 
-// ─── Smart bid increment rules ────────────────────────────────────────────────
-// bid < 2000        → +500
-// bid < 5000        → +1000
-// bid < 10000       → +2000
-// bid < 20000       → +5000
-// bid < 50000       → +10000
-// bid >= 50000      → +25000
-// export const smartIncrement = (currentBid) => {
-//   if (currentBid < 2000)  return 500;
-//   if (currentBid < 5000)  return 1000;
-//   if (currentBid < 10000) return 2000;
-//   if (currentBid < 20000) return 5000;
-//   if (currentBid < 50000) return 10000;
-//   return 25000;
-// };
+// ─── Smart bid increment (reads custom rules from localStorage) ───────────────
 export const smartIncrement = (currentBid) => {
   const defaultRules = [
-    { max: 2000, increment: 500 },
-    { max: 5000, increment: 1000 },
+    { max: 2000,  increment: 500 },
+    { max: 5000,  increment: 1000 },
     { max: 10000, increment: 2000 },
     { max: 20000, increment: 5000 },
     { max: 50000, increment: 10000 },
-    { max: null, increment: 25000 }
+    { max: null,  increment: 25000 },
   ];
-
-
-  
 
   const stored = localStorage.getItem("auction_bid_rules");
   const rules = stored ? JSON.parse(stored) : defaultRules;
 
   for (const rule of rules) {
-    if (rule.max === null || currentBid < rule.max) {
-      return rule.increment;
-    }
+    if (rule.max === null || currentBid < rule.max) return rule.increment;
   }
-
   return 1000;
 };
 
+// ─── Category base price ──────────────────────────────────────────────────────
 export const getCategoryBasePrice = (category) => {
   const stored = localStorage.getItem("auction_category_base_prices");
-
-  const defaults = {
-    A: 1000,
-    B: 500,
-    C: 300,
-    D: 200
-  };
-
+  const defaults = { A: 1000, B: 500, C: 300, D: 200 };
   const map = stored ? JSON.parse(stored) : defaults;
-
   return map[category] ?? 500;
 };
 
 // ─── Category from CSV's category column (A/B/C or any string) ───────────────
-// We display exactly what's in CSV, but also expose unique category list
 export const getCategory = (player) =>
   (player.category || player.Category || "—").toString().trim();
 
-// Category badge colours — works for A/B/C tiers AND custom strings
+// Category badge colours
 const CAT_PALETTE = [
   "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
   "bg-blue-500/15 text-blue-400 border-blue-500/30",
@@ -96,7 +68,6 @@ export const playSound = (type) => {
       osc.start(); setTimeout(() => osc.stop(), 80);
     }
     if (type === "sold") {
-      // ascending fanfare
       [523, 659, 784, 1047].forEach((f, i) => {
         const osc = ctx.createOscillator(); const g = ctx.createGain();
         osc.connect(g); g.connect(ctx.destination);
@@ -106,7 +77,6 @@ export const playSound = (type) => {
       });
     }
     if (type === "unsold") {
-      // descending sad tone
       [300, 220, 180].forEach((f, i) => {
         const osc = ctx.createOscillator(); const g = ctx.createGain();
         osc.connect(g); g.connect(ctx.destination);
@@ -118,7 +88,7 @@ export const playSound = (type) => {
   } catch (_) {}
 };
 
-// ─── Confetti burst (pure canvas, no library) ────────────────────────────────
+// ─── Confetti burst ───────────────────────────────────────────────────────────
 export const fireConfetti = () => {
   const canvas = document.createElement("canvas");
   canvas.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;";
@@ -163,11 +133,13 @@ export const fireConfetti = () => {
 
 // ─── localStorage keys ────────────────────────────────────────────────────────
 export const LS = {
-  PLAYERS:  "playerDetails",
-  TEAMS:    "teamDetails",
+  PLAYERS:    "playerDetails",
+  TEAMS:      "teamDetails",
   TEAM_STATE: "auctionTeamState",
-  SOLD:     "auctionSold",
-  UNSOLD:   "auctionUnsold",
-  LOG:      "auctionLog",
-  CURRENT:  "auctionCurrent",
+  SOLD:       "auctionSold",
+  UNSOLD:     "auctionUnsold",
+  LOG:        "auctionLog",
+  CURRENT:    "auctionCurrent",
+  // ✅ Single source of truth for LiveScreen — written directly by useAuction
+  LIVE_STATE: "auctionLiveState",
 };

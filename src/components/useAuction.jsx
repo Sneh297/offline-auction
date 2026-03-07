@@ -1,37 +1,53 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Papa from "papaparse";
-import { fmt, smartIncrement, playSound, fireConfetti, LS } from "./auctionUtils";
-import { getCategoryBasePrice } from "./auctionUtils";
+import { fmt, smartIncrement, playSound, fireConfetti, LS, getCategoryBasePrice } from "./auctionUtils";
 
 const TIMER_DURATION = 15;
 
 export default function useAuction() {
   // ── raw data
-  const [allPlayers, setAllPlayers]     = useState([]);
-  const [teams, setTeams]               = useState([]);
+  const [allPlayers, setAllPlayers]       = useState([]);
+  const [teams, setTeams]                 = useState([]);
   const [initialBalances, setInitialBalances] = useState({});
 
   // ── auction core
-  const [auctionState, setAuctionState] = useState("idle"); // idle|bidding|sold|unsold
+  const [auctionState, setAuctionState]   = useState("idle"); // idle|bidding|sold|unsold
   const [currentPlayer, setCurrentPlayer] = useState(null);
-  const [currentBid, setCurrentBid]     = useState(0);
-  const [leadingTeam, setLeadingTeam]   = useState(null);
-  const [soldPlayers, setSoldPlayers]   = useState([]);
+  const [currentBid, setCurrentBid]       = useState(0);
+  const [leadingTeam, setLeadingTeam]     = useState(null);
+  const [soldPlayers, setSoldPlayers]     = useState([]);
   const [unsoldPlayers, setUnsoldPlayers] = useState([]);
-  const [bidHistory, setBidHistory]     = useState([]);
-  const [log, setLog]                   = useState([]);
-  const [basePrice, setBasePrice]       = useState(500);
+  const [bidHistory, setBidHistory]       = useState([]);
+  const [log, setLog]                     = useState([]);
+  const [basePrice, setBasePrice]         = useState(500);
 
   // ── timer
-  const [timer, setTimer]               = useState(TIMER_DURATION);
-  const [timerActive, setTimerActive]   = useState(false);
-  const [timerEnabled, setTimerEnabled] = useState(true);
+  const [timer, setTimer]                 = useState(TIMER_DURATION);
+  const [timerActive, setTimerActive]     = useState(false);
+  const [timerEnabled, setTimerEnabled]   = useState(true);
   const [timerDuration, setTimerDuration] = useState(TIMER_DURATION);
 
   const timerRef = useRef(null);
   const autoRef  = useRef(null);
 
-  // ─── Load ───────────────────────────────────────────────────────────────
+  // ─── LIVE STATE WRITER ───────────────────────────────────────────────────────
+  // ✅ FIX: Write a single clean object to localStorage at every state transition.
+  // LiveScreen reads ONLY this key — no log parsing, no race conditions.
+  //
+  // Called synchronously (not in a useEffect) so the value is available to
+  // LiveScreen's 400ms poll BEFORE React has even committed the state update.
+  const writeLive = (state, player, bid, leading, feed) => {
+    localStorage.setItem(LS.LIVE_STATE, JSON.stringify({
+      auctionState: state,
+      player:       player,
+      bid:          bid,
+      leadingTeam:  leading,
+      bidFeed:      feed || [],
+      ts:           Date.now(),
+    }));
+  };
+
+  // ─── Load ────────────────────────────────────────────────────────────────────
   useEffect(() => {
     const playerCsv = localStorage.getItem(LS.PLAYERS);
     const teamCsv   = localStorage.getItem(LS.TEAMS);
@@ -44,11 +60,11 @@ export default function useAuction() {
           r.data.forEach(t => { balances[t.No] = parseInt(t.balance) || 100000; });
           setInitialBalances(balances);
 
-          const saved      = localStorage.getItem(LS.TEAM_STATE);
-          const savedSold  = localStorage.getItem(LS.SOLD);
-          const savedUnsold= localStorage.getItem(LS.UNSOLD);
-          const savedLog   = localStorage.getItem(LS.LOG);
-          const savedCur   = localStorage.getItem(LS.CURRENT);
+          const saved       = localStorage.getItem(LS.TEAM_STATE);
+          const savedSold   = localStorage.getItem(LS.SOLD);
+          const savedUnsold = localStorage.getItem(LS.UNSOLD);
+          const savedLog    = localStorage.getItem(LS.LOG);
+          const savedCur    = localStorage.getItem(LS.CURRENT);
           if (saved) {
             try {
               setTeams(JSON.parse(saved));
@@ -61,7 +77,7 @@ export default function useAuction() {
           }
           setTeams(r.data.map(t => ({
             ...t,
-            balance: parseInt(t.balance) || 100000,
+            balance:    parseInt(t.balance) || 100000,
             maxPlayers: parseInt(t.maxPlayers) || 15,
             squadPlayers: [],
           })));
@@ -70,14 +86,14 @@ export default function useAuction() {
     }
   }, []);
 
-  // ─── Persist ────────────────────────────────────────────────────────────
+  // ─── Persist ─────────────────────────────────────────────────────────────────
   useEffect(() => { if (teams.length)         localStorage.setItem(LS.TEAM_STATE, JSON.stringify(teams)); }, [teams]);
   useEffect(() => { if (soldPlayers.length)   localStorage.setItem(LS.SOLD,       JSON.stringify(soldPlayers)); }, [soldPlayers]);
   useEffect(() => { if (unsoldPlayers.length) localStorage.setItem(LS.UNSOLD,     JSON.stringify(unsoldPlayers)); }, [unsoldPlayers]);
   useEffect(() => { if (log.length)           localStorage.setItem(LS.LOG,        JSON.stringify(log.slice(-100))); }, [log]);
   useEffect(() => { localStorage.setItem(LS.CURRENT, JSON.stringify(currentPlayer)); }, [currentPlayer]);
 
-  // ─── Timer ──────────────────────────────────────────────────────────────
+  // ─── Timer ───────────────────────────────────────────────────────────────────
   useEffect(() => {
     clearInterval(timerRef.current);
     if (!timerActive || !timerEnabled) return;
@@ -90,7 +106,7 @@ export default function useAuction() {
     return () => clearInterval(timerRef.current);
   }, [timerActive, timer, timerEnabled]);
 
-  // ─── Helpers ────────────────────────────────────────────────────────────
+  // ─── Helpers ─────────────────────────────────────────────────────────────────
   const addLog = (msg, type = "info") => {
     const time = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     setLog(prev => [...prev.slice(-99), { msg, type, time }]);
@@ -103,73 +119,66 @@ export default function useAuction() {
     if (timerEnabled) setTimerActive(true);
   }, [timerEnabled, timerDuration]);
 
-  // ─── Core bid ───────────────────────────────────────────────────────────
+  // ─── Core bid ─────────────────────────────────────────────────────────────────
+  // ✅ FIX: Uses functional updater for bidHistory so writeLive receives the
+  // latest feed synchronously — React state batching cannot delay it.
   const doPlaceBid = useCallback((team, amount) => {
+    setBidHistory(prev => {
+      const newFeed = [{ team, amount }, ...prev].slice(0, 8);
+      // Write to localStorage immediately inside the updater — guaranteed fresh
+      writeLive("bidding", currentPlayer, amount, team, newFeed);
+      return [{ team, amount }, ...prev];
+    });
     setCurrentBid(amount);
     setLeadingTeam(team);
-    setCustomBid && setCustomBid("");
-    setBidHistory(prev => [...prev, { team, amount }]);
     addLog(`🏷️ ${team.Name} bids ${fmt(amount)}`, "bid");
     playSound("bid");
     resetTimer();
-  }, [resetTimer]);
+  }, [currentPlayer, resetTimer]);
 
-  // ─── One-click team bid (smart increment) ───────────────────────────────
-  // const onTeamClick = useCallback((team) => {
-  //   if (auctionState !== "bidding") return;
-  //   const canBid = team.balance > currentBid && team.squadPlayers.length < parseInt(team.maxPlayers);
-  //   if (!canBid || leadingTeam?.No === team.No) return;
-  //   const inc    = smartIncrement(currentBid);
-  //   const newBid = currentBid + inc;
-  //   if (newBid > team.balance) return;
-  //   doPlaceBid(team, newBid);
-  // }, [auctionState, currentBid, leadingTeam, doPlaceBid]);
+  // ─── One-click team bid ───────────────────────────────────────────────────────
   const onTeamClick = useCallback((team) => {
-  if (auctionState !== "bidding") return;
+    if (auctionState !== "bidding") return;
 
-  const canBid =
-    team.balance >= currentBid &&
-    team.squadPlayers.length < parseInt(team.maxPlayers);
+    const canBid =
+      team.balance >= currentBid &&
+      team.squadPlayers.length < parseInt(team.maxPlayers);
 
-  if (!canBid) return;
+    if (!canBid) return;
 
-  // 🚨 FIRST BID (base price)
-  if (!leadingTeam) {
-    doPlaceBid(team, currentBid); // base price only
-    return;
-  }
+    // First bid — place at base price (no increment yet)
+    if (!leadingTeam) {
+      doPlaceBid(team, currentBid);
+      return;
+    }
 
-  // same team cannot bid again
-  if (leadingTeam?.No === team.No) return;
+    // Same team cannot outbid themselves
+    if (leadingTeam?.No === team.No) return;
 
-  const inc = smartIncrement(currentBid);
-  const newBid = currentBid + inc;
+    const inc    = smartIncrement(currentBid);
+    const newBid = currentBid + inc;
+    if (newBid > team.balance) return;
+    doPlaceBid(team, newBid);
+  }, [auctionState, currentBid, leadingTeam, doPlaceBid]);
 
-  if (newBid > team.balance) return;
-
-  doPlaceBid(team, newBid);
-
-}, [auctionState, currentBid, leadingTeam, doPlaceBid]);
-
-  // ─── Custom amount bid ───────────────────────────────────────────────────
+  // ─── Custom amount bid ────────────────────────────────────────────────────────
   const onCustomBid = useCallback((amount, teamNo) => {
     const amt  = parseInt(amount);
     const team = teams.find(t => t.No === (teamNo ?? leadingTeam?.No));
-    if (!team)         { return "Select a team first"; }
-    if (!amt || amt <= currentBid) { return `Bid must exceed ${fmt(currentBid)}`; }
-    if (amt > team.balance)        { return `${team.Name} only has ${fmt(team.balance)}`; }
-    if (team.squadPlayers.length >= parseInt(team.maxPlayers)) { return `${team.Name} roster is full`; }
+    if (!team)                                                 return "Select a team first";
+    if (!amt || amt <= currentBid)                             return `Bid must exceed ${fmt(currentBid)}`;
+    if (amt > team.balance)                                    return `${team.Name} only has ${fmt(team.balance)}`;
+    if (team.squadPlayers.length >= parseInt(team.maxPlayers)) return `${team.Name} roster is full`;
     doPlaceBid(team, amt);
     return null;
   }, [teams, leadingTeam, currentBid, doPlaceBid]);
 
-  // ─── Select player ───────────────────────────────────────────────────────
+  // ─── Select player ────────────────────────────────────────────────────────────
   const initPlayer = useCallback((p) => {
-
-
     const category = (p.category || p.Category || "").toString().trim();
-  const base = getCategoryBasePrice(category);
-  setBasePrice(base); 
+    const base = getCategoryBasePrice(category);
+    setBasePrice(base);
+
     clearInterval(timerRef.current);
     clearTimeout(autoRef.current);
     setCurrentPlayer(p);
@@ -179,10 +188,16 @@ export default function useAuction() {
     setBidHistory([]);
     setTimerActive(false);
     setTimer(timerDuration);
-      addLog(`👤 Up next: ${p.name ?? p.Name}`, "info");
-  addLog(`🏷️ Category ${category} base price ${fmt(base)}`, "info");
+
+    // ✅ FIX: Write immediately — clears previous sold/bid/team so LiveScreen
+    // never shows the new player as "sold to previous team"
+    writeLive("idle", p, 0, null, []);
+
+    addLog(`👤 Up next: ${p.name ?? p.Name}`, "info");
+    addLog(`🏷️ Category ${category} base price ${fmt(base)}`, "info");
   }, [timerDuration]);
 
+  // ─── Start bidding ────────────────────────────────────────────────────────────
   const startBidding = useCallback(() => {
     if (!currentPlayer) return;
     const bp = parseInt(basePrice) || 500;
@@ -191,11 +206,15 @@ export default function useAuction() {
     setBidHistory([]);
     setAuctionState("bidding");
     resetTimer(timerDuration);
+
+    // ✅ FIX: LiveScreen sees "bidding" + base price instantly
+    writeLive("bidding", currentPlayer, bp, null, []);
+
     addLog(`🎯 Auction: ${currentPlayer.name ?? currentPlayer.Name}`, "start");
     addLog(`💰 Base: ${fmt(bp)}`, "info");
   }, [currentPlayer, basePrice, resetTimer, timerDuration]);
 
-  // ─── Sell ────────────────────────────────────────────────────────────────
+  // ─── Sell ─────────────────────────────────────────────────────────────────────
   const _sell = useCallback(() => {
     if (!leadingTeam || !currentPlayer) return;
     clearInterval(timerRef.current);
@@ -211,38 +230,60 @@ export default function useAuction() {
     playSound("sold");
     fireConfetti();
     setAuctionState("sold");
-    setTimeout(() => { setCurrentPlayer(null); setAuctionState("idle"); }, 3000);
+
+    // ✅ FIX: Write correct player + team + price — LiveScreen shows the right data
+    writeLive("sold", player, price, team, []);
+
+    setTimeout(() => {
+      setCurrentPlayer(null);
+      setAuctionState("idle");
+      // ✅ FIX: Clear to idle so next player select starts clean
+      writeLive("idle", null, 0, null, []);
+    }, 3000);
   }, [leadingTeam, currentPlayer, currentBid]);
 
-  // ─── Unsold ──────────────────────────────────────────────────────────────
+  // ─── Unsold ───────────────────────────────────────────────────────────────────
   const _unsold = useCallback(() => {
     if (!currentPlayer) return;
     clearInterval(timerRef.current);
     setTimerActive(false);
-    setUnsoldPlayers(prev => [...prev, currentPlayer]);
-    addLog(`❌ UNSOLD: ${currentPlayer.name ?? currentPlayer.Name}`, "unsold");
+    const player = currentPlayer;
+    setUnsoldPlayers(prev => [...prev, player]);
+    addLog(`❌ UNSOLD: ${player.name ?? player.Name}`, "unsold");
     playSound("unsold");
     setAuctionState("unsold");
-    setTimeout(() => { setCurrentPlayer(null); setAuctionState("idle"); }, 2000);
-  }, [currentPlayer]);
 
-  // ─── Undo last bid ───────────────────────────────────────────────────────
+    // ✅ FIX: Write unsold state with correct player
+    writeLive("unsold", player, currentBid, null, []);
+
+    setTimeout(() => {
+      setCurrentPlayer(null);
+      setAuctionState("idle");
+      writeLive("idle", null, 0, null, []);
+    }, 2000);
+  }, [currentPlayer, currentBid]);
+
+  // ─── Undo last bid ────────────────────────────────────────────────────────────
   const undoLastBid = useCallback(() => {
     if (bidHistory.length < 2) {
       const bp = parseInt(basePrice) || 500;
       setCurrentBid(bp); setLeadingTeam(null); setBidHistory([]);
+      writeLive("bidding", currentPlayer, bp, null, []);
       addLog(`↩️ Undo — back to base ${fmt(bp)}`, "info");
       resetTimer();
       return;
     }
-    const prev = bidHistory[bidHistory.length - 2];
-    setBidHistory(h => h.slice(0, -1));
-    setCurrentBid(prev.amount); setLeadingTeam(prev.team);
+    const prev       = bidHistory[bidHistory.length - 2];
+    const newHistory = bidHistory.slice(0, -1);
+    setBidHistory(newHistory);
+    setCurrentBid(prev.amount);
+    setLeadingTeam(prev.team);
+    writeLive("bidding", currentPlayer, prev.amount, prev.team, newHistory.slice(0, 8));
     addLog(`↩️ Undo — ${prev.team.Name} leads at ${fmt(prev.amount)}`, "info");
     resetTimer();
-  }, [bidHistory, basePrice, resetTimer]);
+  }, [bidHistory, basePrice, currentPlayer, resetTimer]);
 
-  // ─── Admin fixes ─────────────────────────────────────────────────────────
+  // ─── Admin fixes ──────────────────────────────────────────────────────────────
   const adminUndoSold = useCallback((idx) => {
     const e = soldPlayers[idx]; if (!e) return;
     setTeams(prev => prev.map(t => t.No === e.team.No
@@ -269,8 +310,8 @@ export default function useAuction() {
     if (!e || !newTeam) return null;
     if (newTeam.balance < e.price) return `${newTeam.Name} can't afford ${fmt(e.price)}`;
     setTeams(prev => prev.map(t => {
-      if (t.No === e.team.No)  return { ...t, balance: t.balance + e.price, squadPlayers: t.squadPlayers.filter(p => p.No !== e.player.No) };
-      if (t.No === newTeamNo)  return { ...t, balance: t.balance - e.price, squadPlayers: [...t.squadPlayers, { ...e.player, soldFor: e.price }] };
+      if (t.No === e.team.No) return { ...t, balance: t.balance + e.price, squadPlayers: t.squadPlayers.filter(p => p.No !== e.player.No) };
+      if (t.No === newTeamNo) return { ...t, balance: t.balance - e.price, squadPlayers: [...t.squadPlayers, { ...e.player, soldFor: e.price }] };
       return t;
     }));
     setSoldPlayers(prev => prev.map((x, i) => i === soldIdx ? { ...x, team: newTeam } : x));
@@ -291,7 +332,7 @@ export default function useAuction() {
     setUnsoldPlayers([]);
   }, [unsoldPlayers]);
 
-  // ─── Full reset ──────────────────────────────────────────────────────────
+  // ─── Full reset ───────────────────────────────────────────────────────────────
   const resetAuction = useCallback(() => {
     if (!window.confirm("Full reset? All bids and squads will be cleared.")) return;
     clearInterval(timerRef.current); clearTimeout(autoRef.current);
@@ -299,6 +340,7 @@ export default function useAuction() {
     setCurrentBid(0); setLeadingTeam(null); setLog([]); setBidHistory([]);
     setAuctionState("idle"); setTimerActive(false);
     Object.values(LS).forEach(k => localStorage.removeItem(k));
+    writeLive("idle", null, 0, null, []);
     const teamCsv = localStorage.getItem(LS.TEAMS);
     if (teamCsv) Papa.parse(teamCsv, {
       header: true, skipEmptyLines: true,
@@ -309,7 +351,7 @@ export default function useAuction() {
     });
   }, []);
 
-  // ─── Derived ─────────────────────────────────────────────────────────────
+  // ─── Derived ──────────────────────────────────────────────────────────────────
   const soldNos   = new Set(soldPlayers.map(s => s.player.No));
   const unsoldNos = new Set(unsoldPlayers.map(u => u.No));
   const getAvailable = (category, search) => allPlayers.filter(p => {
@@ -321,7 +363,9 @@ export default function useAuction() {
     return true;
   });
 
-  const uniqueCategories = ["All", ...new Set(allPlayers.map(p => (p.category || p.Category || "").toString().trim()).filter(Boolean))];
+  const uniqueCategories = ["All", ...new Set(
+    allPlayers.map(p => (p.category || p.Category || "").toString().trim()).filter(Boolean)
+  )];
 
   return {
     // data

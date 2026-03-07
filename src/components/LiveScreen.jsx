@@ -3,12 +3,15 @@ import { fmt, getCategory, catColor, imgProps, LS, fireConfetti, playSound } fro
 
 /* ─────────────────────────────────────────────────────────────────────────────
    LIVE SCREEN  —  open at /live on a projector / second monitor
-   Polls localStorage every 500ms so it stays in sync with /auction
+
+   ✅ FIX: Reads ONLY from LS.LIVE_STATE — a single clean object written
+   directly by useAuction at every transition (initPlayer, startBidding,
+   doPlaceBid, _sell, _unsold, undoLastBid, reset).
+
+   No log parsing. No string matching. No race conditions.
 ───────────────────────────────────────────────────────────────────────────── */
 
-/* ── helpers ── */
-const teamLogo = (team) =>
-  team?.Logo || team?.logo || null;
+const teamLogo = (team) => team?.Logo || team?.logo || null;
 
 function TeamAvatar({ team, size = 40 }) {
   const src = teamLogo(team);
@@ -51,44 +54,33 @@ function PlayerPhoto({ src, alt, glow }) {
           <span className="text-slate-400 font-black text-7xl">{alt?.[0]?.toUpperCase() ?? "?"}</span>
         </div>
       )}
-
-      {/* pulse ring during bidding */}
       {glow === "bidding" && (
         <div
           className="absolute inset-0 rounded-full"
-          style={{
-            animation: "liveRing 2s ease-out infinite",
-            border: "3px solid rgba(99,102,241,0.6)",
-          }}
+          style={{ animation: "liveRing 2s ease-out infinite", border: "3px solid rgba(99,102,241,0.6)" }}
         />
       )}
     </div>
   );
 }
 
-/* ── Bid Flash — the big center number that animates on each new bid ── */
-function BidDisplay({ bid, state, leadingTeam, flash }) {
+function BidDisplay({ bid, state, leadingTeam }) {
   return (
     <div className="flex flex-col items-center gap-2">
       <p className="text-xs font-mono uppercase tracking-[0.25em] text-slate-500">
         {state === "sold" ? "Sold For" : state === "unsold" ? "Base Price" : "Current Bid"}
       </p>
 
+      {/* key={bid+state} forces re-mount = re-triggers animation on every change */}
       <div
-        key={bid} /* re-mounts on bid change → triggers animation */
+        key={`${bid}-${state}`}
         className="font-black tabular-nums"
         style={{
           fontSize: "clamp(3rem, 8vw, 6rem)",
           lineHeight: 1,
-          color:
-            state === "sold"    ? "#10b981" :
-            state === "unsold"  ? "#ef4444" :
-            "#818cf8",
-          textShadow:
-            state === "sold"    ? "0 0 60px rgba(16,185,129,0.7)" :
-            state === "unsold"  ? "0 0 40px rgba(239,68,68,0.5)" :
-            "0 0 40px rgba(99,102,241,0.6)",
-          animation: flash ? "bidPop 0.35s cubic-bezier(0.34,1.56,0.64,1)" : "none",
+          color:      state === "sold" ? "#10b981" : state === "unsold" ? "#ef4444" : "#818cf8",
+          textShadow: state === "sold" ? "0 0 60px rgba(16,185,129,0.7)" : state === "unsold" ? "0 0 40px rgba(239,68,68,0.5)" : "0 0 40px rgba(99,102,241,0.6)",
+          animation: "bidPop 0.35s cubic-bezier(0.34,1.56,0.64,1)",
         }}
       >
         {fmt(bid)}
@@ -98,11 +90,7 @@ function BidDisplay({ bid, state, leadingTeam, flash }) {
       {leadingTeam && state === "bidding" && (
         <div
           className="flex items-center gap-2 px-4 py-2 rounded-full border mt-1"
-          style={{
-            background: "rgba(99,102,241,0.12)",
-            borderColor: "rgba(99,102,241,0.35)",
-            animation: "fadeSlideUp 0.3s ease",
-          }}
+          style={{ background: "rgba(99,102,241,0.12)", borderColor: "rgba(99,102,241,0.35)", animation: "fadeSlideUp 0.3s ease" }}
         >
           <TeamAvatar team={leadingTeam} size={28} />
           <span className="text-sm font-black text-white">{leadingTeam.Name}</span>
@@ -114,11 +102,7 @@ function BidDisplay({ bid, state, leadingTeam, flash }) {
       {state === "sold" && leadingTeam && (
         <div
           className="flex items-center gap-3 px-5 py-2.5 rounded-full mt-2"
-          style={{
-            background: "rgba(16,185,129,0.15)",
-            border: "1.5px solid rgba(16,185,129,0.4)",
-            animation: "fadeSlideUp 0.4s ease",
-          }}
+          style={{ background: "rgba(16,185,129,0.15)", border: "1.5px solid rgba(16,185,129,0.4)", animation: "fadeSlideUp 0.4s ease" }}
         >
           <TeamAvatar team={leadingTeam} size={34} />
           <div>
@@ -133,11 +117,7 @@ function BidDisplay({ bid, state, leadingTeam, flash }) {
       {state === "unsold" && (
         <div
           className="px-6 py-2.5 rounded-full text-xl font-black text-red-400 mt-2"
-          style={{
-            background: "rgba(239,68,68,0.12)",
-            border: "1.5px solid rgba(239,68,68,0.35)",
-            animation: "fadeSlideUp 0.4s ease",
-          }}
+          style={{ background: "rgba(239,68,68,0.12)", border: "1.5px solid rgba(239,68,68,0.35)", animation: "fadeSlideUp 0.4s ease" }}
         >
           😔 UNSOLD
         </div>
@@ -146,7 +126,6 @@ function BidDisplay({ bid, state, leadingTeam, flash }) {
   );
 }
 
-/* ── Recent Bids feed ── */
 function BidFeed({ bids }) {
   return (
     <div className="flex flex-col gap-1.5 w-full">
@@ -159,8 +138,8 @@ function BidFeed({ bids }) {
           className="flex items-center justify-between px-3 py-2 rounded-xl"
           style={{
             background: i === 0 ? "rgba(99,102,241,0.15)" : "rgba(255,255,255,0.03)",
-            border: i === 0 ? "1px solid rgba(99,102,241,0.3)" : "1px solid rgba(255,255,255,0.05)",
-            animation: i === 0 ? "fadeSlideUp 0.3s ease" : "none",
+            border:     i === 0 ? "1px solid rgba(99,102,241,0.3)" : "1px solid rgba(255,255,255,0.05)",
+            animation:  i === 0 ? "fadeSlideUp 0.3s ease" : "none",
           }}
         >
           <div className="flex items-center gap-2 min-w-0">
@@ -178,8 +157,7 @@ function BidFeed({ bids }) {
   );
 }
 
-/* ── Team standings column ── */
-function TeamStandings({ teams, soldPlayers }) {
+function TeamStandings({ teams }) {
   const sorted = [...teams].sort((a, b) => b.squadPlayers.length - a.squadPlayers.length);
   return (
     <div className="flex flex-col gap-2">
@@ -208,7 +186,6 @@ function TeamStandings({ teams, soldPlayers }) {
   );
 }
 
-/* ── Recently sold strip ── */
 function RecentlySold({ soldPlayers }) {
   const last5 = [...soldPlayers].reverse().slice(0, 5);
   if (!last5.length) return null;
@@ -238,115 +215,44 @@ function RecentlySold({ soldPlayers }) {
 
 /* ─── MAIN ─────────────────────────────────────────────────────────────────── */
 export default function LiveScreen() {
-  const [player, setPlayer]           = useState(null);
-  const [bid, setBid]                 = useState(0);
-  const [leadingTeam, setLeadingTeam] = useState(null);
-  const [auctionState, setAuctionState] = useState("idle");
-  const [bidFeed, setBidFeed]         = useState([]); // [{team, amount}]
+  // ✅ FIX: Single state object read from LS.LIVE_STATE
+  const [live, setLive] = useState({
+    auctionState: "idle",
+    player:       null,
+    bid:          0,
+    leadingTeam:  null,
+    bidFeed:      [],
+  });
+
   const [teams, setTeams]             = useState([]);
   const [soldPlayers, setSoldPlayers] = useState([]);
   const [view, setView]               = useState("live");
-  const [flash, setFlash]             = useState(false);
 
-  // track last log length to detect new entries
-  const lastLogLen  = useRef(0);
-  const prevState   = useRef("idle");
-  const prevBid     = useRef(0);
-  const flashTimer  = useRef(null);
-
-  const triggerFlash = () => {
-    setFlash(true);
-    clearTimeout(flashTimer.current);
-    flashTimer.current = setTimeout(() => setFlash(false), 400);
-  };
+  const prevState = useRef("idle");
+  const prevBid   = useRef(0);
+  const prevTs    = useRef(0);
 
   const poll = () => {
     try {
-      /* ── teams ── */
+      // ── teams + sold (for standings panel) ──
       const rawTeams = localStorage.getItem(LS.TEAM_STATE);
-      const parsedTeams = rawTeams ? JSON.parse(rawTeams) : [];
-      if (rawTeams) setTeams(parsedTeams);
+      const rawSold  = localStorage.getItem(LS.SOLD);
+      if (rawTeams) setTeams(JSON.parse(rawTeams));
+      if (rawSold)  setSoldPlayers(JSON.parse(rawSold));
 
-      /* ── sold list ── */
-      const rawSold = localStorage.getItem(LS.SOLD);
-      const parsedSold = rawSold ? JSON.parse(rawSold) : [];
-      if (rawSold) setSoldPlayers(parsedSold);
+      // ── ✅ FIX: Read the single live state object — no log parsing ──
+      const raw = localStorage.getItem(LS.LIVE_STATE);
+      if (!raw) return;
+      const next = JSON.parse(raw);
 
-      /* ── current player ── */
-      const rawCur = localStorage.getItem(LS.CURRENT);
-      const parsedPlayer = rawCur ? JSON.parse(rawCur) : null;
-      setPlayer(parsedPlayer);
+      // Skip if nothing changed (ts is bumped on every writeLive call)
+      if (next.ts === prevTs.current) return;
+      prevTs.current = next.ts;
 
-      /* ── log — derive full state ── */
-      const rawLog = localStorage.getItem(LS.LOG);
-      if (!rawLog) return;
-      const entries = JSON.parse(rawLog);
+      const { auctionState: newState, bid: newBid } = next;
 
-      // Find most recent event of each type by scanning from end
-      let latestBid = null, latestStart = null, latestSold = null, latestUnsold = null;
-      let latestBidIdx = -1, latestStartIdx = -1, latestSoldIdx = -1, latestUnsoldIdx = -1;
-
-      entries.forEach((e, i) => {
-        if (e.type === "bid")    { latestBid    = e; latestBidIdx    = i; }
-        if (e.type === "start")  { latestStart  = e; latestStartIdx  = i; }
-        if (e.type === "sold")   { latestSold   = e; latestSoldIdx   = i; }
-        if (e.type === "unsold") { latestUnsold = e; latestUnsoldIdx = i; }
-      });
-
-      // The most recent "terminal" event (sold/unsold) wins if it's after the last start
-      const lastTerminal = Math.max(latestSoldIdx, latestUnsoldIdx);
-      const isBidding    = latestBidIdx > lastTerminal && latestBidIdx > latestStartIdx - 1;
-      const isSold       = latestSoldIdx  > latestStartIdx && latestSoldIdx  >= latestBidIdx;
-      const isUnsold     = latestUnsoldIdx > latestStartIdx && latestUnsoldIdx > latestSoldIdx;
-
-      let newState = "idle";
-      if (latestStart && isBidding) newState = "bidding";
-      if (latestStart && isSold)    newState = "sold";
-      if (latestStart && isUnsold)  newState = "unsold";
-
-      // Extract current bid from latest bid entry
-      let newBid = 0;
-      let newLeadingTeam = null;
-      if (latestBid && isBidding) {
-        const match = latestBid.msg.match(/₹([\d,]+)/);
-        if (match) newBid = parseInt(match[1].replace(/,/g, ""));
-        const teamName = latestBid.msg.replace("🏷️ ", "").split(" bids")[0].trim();
-        newLeadingTeam = parsedTeams.find(t => t.Name === teamName) || null;
-      }
-
-      // For sold state, get price and team from sold entry
-      if (isSold && latestSold) {
-        const match = latestSold.msg.match(/₹([\d,]+)/);
-        if (match) newBid = parseInt(match[1].replace(/,/g, ""));
-        // Get team from sold message: "✅ SOLD! Name → TeamName for ₹XXX"
-        const teamMatch = latestSold.msg.match(/→ (.+?) for/);
-        if (teamMatch) {
-          newLeadingTeam = parsedTeams.find(t => t.Name === teamMatch[1].trim()) || null;
-        }
-        // fallback: use last known leading team from last bid
-        if (!newLeadingTeam && latestBid) {
-          const tName = latestBid.msg.replace("🏷️ ", "").split(" bids")[0].trim();
-          newLeadingTeam = parsedTeams.find(t => t.Name === tName) || null;
-        }
-      }
-
-      // Build bid feed from ALL bid entries since last start
-      const feedEntries = entries
-        .slice(latestStartIdx >= 0 ? latestStartIdx : 0)
-        .filter(e => e.type === "bid")
-        .reverse()
-        .slice(0, 8)
-        .map(e => {
-          const m = e.msg.match(/₹([\d,]+)/);
-          const amount = m ? parseInt(m[1].replace(/,/g, "")) : 0;
-          const tName  = e.msg.replace("🏷️ ", "").split(" bids")[0].trim();
-          const team   = parsedTeams.find(t => t.Name === tName) || { Name: tName };
-          return { team, amount, time: e.time };
-        });
-
-      /* ── Fire effects on transitions ── */
-      if (prevBid.current !== newBid && newState === "bidding" && newBid > 0) {
-        triggerFlash();
+      // Fire effects only on actual transitions
+      if (newState === "bidding" && newBid !== prevBid.current && newBid > 0) {
         playSound("bid");
       }
       if (prevState.current !== "sold" && newState === "sold") {
@@ -360,66 +266,40 @@ export default function LiveScreen() {
       prevState.current = newState;
       prevBid.current   = newBid;
 
-      setBid(newBid);
-      setLeadingTeam(newLeadingTeam);
-      setAuctionState(newState);
-      setBidFeed(feedEntries);
-
+      setLive(next);
     } catch (_) {}
   };
 
   useEffect(() => {
     poll();
-    const id = setInterval(poll, 500);
-    // also react instantly to storage events (same-device tab)
+    const id = setInterval(poll, 400);
     const onStorage = (e) => {
-      if ([LS.LOG, LS.TEAM_STATE, LS.CURRENT, LS.SOLD].includes(e.key)) poll();
+      // ✅ FIX: Only need to watch LIVE_STATE — it's the single source of truth
+      if (e.key === LS.LIVE_STATE || e.key === LS.TEAM_STATE || e.key === LS.SOLD) poll();
     };
     window.addEventListener("storage", onStorage);
     return () => { clearInterval(id); window.removeEventListener("storage", onStorage); };
   }, []);
 
+  const { auctionState, player, bid, leadingTeam, bidFeed } = live;
   const cat = player ? getCategory(player) : null;
   const cc  = cat ? catColor(cat) : "";
 
   return (
     <>
-      {/* ── CSS keyframes ── */}
       <style>{`
-        @keyframes liveRing {
-          0%   { transform: scale(1);   opacity: 0.7; }
-          100% { transform: scale(1.5); opacity: 0; }
-        }
-        @keyframes bidPop {
-          0%   { transform: scale(0.85); opacity: 0.5; }
-          60%  { transform: scale(1.06); opacity: 1; }
-          100% { transform: scale(1);   opacity: 1; }
-        }
-        @keyframes fadeSlideUp {
-          from { opacity: 0; transform: translateY(10px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes soldBounce {
-          0%,100% { transform: scale(1); }
-          25%      { transform: scale(1.12); }
-          50%      { transform: scale(0.96); }
-          75%      { transform: scale(1.05); }
-        }
-        @keyframes unsoldFade {
-          from { opacity:0; filter: grayscale(0); }
-          to   { opacity:0.65; filter: grayscale(1); }
-        }
-        @keyframes pulse2 {
-          0%,100% { opacity:1; }
-          50%     { opacity:0.4; }
-        }
+        @keyframes liveRing   { 0%{transform:scale(1);opacity:.7} 100%{transform:scale(1.5);opacity:0} }
+        @keyframes bidPop     { 0%{transform:scale(.85);opacity:.5} 60%{transform:scale(1.06);opacity:1} 100%{transform:scale(1);opacity:1} }
+        @keyframes fadeSlideUp{ from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes soldBounce { 0%,100%{transform:scale(1)} 25%{transform:scale(1.12)} 50%{transform:scale(.96)} 75%{transform:scale(1.05)} }
+        @keyframes unsoldFade { from{opacity:1;filter:grayscale(0)} to{opacity:.65;filter:grayscale(1)} }
+        @keyframes pulse2     { 0%,100%{opacity:1} 50%{opacity:.4} }
       `}</style>
 
       <div
         className="h-screen text-white flex flex-col overflow-hidden"
         style={{ background: "linear-gradient(135deg, #070910 0%, #0c0f1a 50%, #070910 100%)" }}
       >
-
         {/* ══ HEADER ══════════════════════════════════════════════════════ */}
         <div
           className="w-full flex items-center justify-between px-6 py-3 shrink-0"
@@ -431,16 +311,16 @@ export default function LiveScreen() {
           </div>
 
           <div className="flex items-center gap-5 text-xs font-mono">
-            <span className="text-slate-500">
-              ✅ <span className="text-emerald-400 font-bold">{soldPlayers.length}</span> sold
-            </span>
-            <span className="text-slate-500">
-              🏆 <span className="text-slate-300 font-bold">{teams.length}</span> teams
-            </span>
-            <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full ${auctionState === "bidding" ? "bg-red-500/15 text-red-400" : "bg-slate-800 text-slate-600"}`}
-              style={{ border: auctionState === "bidding" ? "1px solid rgba(239,68,68,0.35)" : "1px solid rgba(255,255,255,0.06)" }}>
-              <span className={`w-1.5 h-1.5 rounded-full ${auctionState === "bidding" ? "bg-red-400" : "bg-slate-600"}`}
-                style={auctionState === "bidding" ? { animation: "pulse2 1.2s ease infinite" } : {}} />
+            <span className="text-slate-500">✅ <span className="text-emerald-400 font-bold">{soldPlayers.length}</span> sold</span>
+            <span className="text-slate-500">🏆 <span className="text-slate-300 font-bold">{teams.length}</span> teams</span>
+            <div
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full ${auctionState === "bidding" ? "bg-red-500/15 text-red-400" : "bg-slate-800 text-slate-600"}`}
+              style={{ border: auctionState === "bidding" ? "1px solid rgba(239,68,68,0.35)" : "1px solid rgba(255,255,255,0.06)" }}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${auctionState === "bidding" ? "bg-red-400" : "bg-slate-600"}`}
+                style={auctionState === "bidding" ? { animation: "pulse2 1.2s ease infinite" } : {}}
+              />
               <span className="uppercase tracking-widest text-[10px] font-black">
                 {auctionState === "bidding" ? "LIVE" : auctionState === "idle" ? "WAITING" : auctionState.toUpperCase()}
               </span>
@@ -484,9 +364,10 @@ export default function LiveScreen() {
                   <p className="text-sm text-slate-600">The auctioneer is selecting a player</p>
                 </div>
               ) : (
-                <div className="flex flex-col items-center gap-5 relative z-10"
-                  style={auctionState === "unsold" ? { animation: "unsoldFade 1s ease forwards 0.5s" } : {}}>
-
+                <div
+                  className="flex flex-col items-center gap-5 relative z-10"
+                  style={auctionState === "unsold" ? { animation: "unsoldFade 1s ease forwards 0.5s" } : {}}
+                >
                   {/* Player photo */}
                   <div style={auctionState === "sold" ? { animation: "soldBounce 0.6s ease 0.1s" } : {}}>
                     <PlayerPhoto
@@ -536,20 +417,16 @@ export default function LiveScreen() {
 
                   {/* Bid amount */}
                   {(auctionState === "bidding" || auctionState === "sold" || auctionState === "unsold") && bid > 0 && (
-                    <BidDisplay bid={bid} state={auctionState} leadingTeam={leadingTeam} flash={flash} />
+                    <BidDisplay bid={bid} state={auctionState} leadingTeam={leadingTeam} />
                   )}
                   {auctionState === "bidding" && bid === 0 && (
                     <p className="text-slate-600 italic text-sm">No bids yet…</p>
                   )}
-
                 </div>
               )}
             </div>
-
-        
-
-      
-
+ 
+          
           </div>
         )}
 
@@ -591,8 +468,37 @@ export default function LiveScreen() {
             </div>
           </div>
         )}
-
       </div>
     </>
   );
 }
+
+
+
+
+  // <div
+  //             className="w-72 shrink-0 flex flex-col overflow-hidden"
+  //             style={{ background: "rgba(7,9,16,0.7)", borderLeft: "1px solid rgba(255,255,255,0.05)", backdropFilter: "blur(8px)" }}
+  //           >
+  //             {/* Live bid feed */}
+  //             <div className="p-4 overflow-y-auto" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)", maxHeight: "45%" }}>
+  //               <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-slate-600 mb-3">
+  //                 {auctionState === "bidding" ? "🔴 Live Bids" : "Recent Bids"}
+  //               </p>
+  //               <BidFeed bids={bidFeed} />
+  //             </div>
+
+  //             {/* Team standings */}
+  //             <div className="p-4 overflow-y-auto flex-1">
+  //               <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-slate-600 mb-3">Team Standings</p>
+  //               <TeamStandings teams={teams} />
+  //             </div>
+
+  //             {/* Recently sold */}
+  //             {soldPlayers.length > 0 && (
+  //               <div className="p-4" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+  //                 <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-slate-600 mb-2">Recently Sold</p>
+  //                 <RecentlySold soldPlayers={soldPlayers} />
+  //               </div>
+  //             )}
+  //           </div>
