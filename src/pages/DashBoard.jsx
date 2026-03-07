@@ -5,8 +5,7 @@ import CSVEditorTeams from "../components/CSVEditorTeams";
 import ToggleGroup from "../components/ToggleGroup";
 
 function DashBoard() {
-  const [activeView, setActiveView] = useState("players"); // "players" | "teams"
-
+ 
   return (
     <div className="flex flex-col min-h-screen bg-[#0f1117]">
 
