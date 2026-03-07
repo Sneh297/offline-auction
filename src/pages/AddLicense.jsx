@@ -44,7 +44,6 @@ function AddLicense() {
       } else {
           const expiryDate = new Date();
   expiryDate.setDate(expiryDate.getDate() + 2);
-
   document.cookie = `license=${license}; expires=${expiryDate.toUTCString()}; path=/`;
 
   navigate("/dashboard");
