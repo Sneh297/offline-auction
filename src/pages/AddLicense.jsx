@@ -42,6 +42,12 @@ function AddLicense() {
       if (data.valid === false) {
         setError("Invalid license");
       } else {
+          const expiryDate = new Date();
+  expiryDate.setDate(expiryDate.getDate() + 2);
+
+  document.cookie = `license=${license}; expires=${expiryDate.toUTCString()}; path=/`;
+
+  navigate("/dashboard");
         navigate("/dashboard", { replace: true });
       }
     } catch (err) {
