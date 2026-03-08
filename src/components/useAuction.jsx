@@ -36,13 +36,15 @@ export default function useAuction() {
   //
   // Called synchronously (not in a useEffect) so the value is available to
   // LiveScreen's 400ms poll BEFORE React has even committed the state update.
-  const writeLive = (state, player, bid, leading, feed) => {
+  const writeLive = (state, player, bid, leading, feed, timerVal, timerEn) => {
     localStorage.setItem(LS.LIVE_STATE, JSON.stringify({
       auctionState: state,
       player:       player,
       bid:          bid,
       leadingTeam:  leading,
       bidFeed:      feed || [],
+      timer:        timerVal ?? timer,
+      timerEnabled: timerEn  ?? timerEnabled,
       ts:           Date.now(),
     }));
   };
@@ -93,18 +95,40 @@ export default function useAuction() {
   useEffect(() => { if (log.length)           localStorage.setItem(LS.LOG,        JSON.stringify(log.slice(-100))); }, [log]);
   useEffect(() => { localStorage.setItem(LS.CURRENT, JSON.stringify(currentPlayer)); }, [currentPlayer]);
 
-  // ─── Timer ───────────────────────────────────────────────────────────────────
+  // ─── Sync timer tick to LiveScreen (patches ts so poll fires, but doesn't
+  // re-trigger bid/sold effects since auctionState/bid haven't changed) ────────
   useEffect(() => {
-    clearInterval(timerRef.current);
-    if (!timerActive || !timerEnabled) return;
-    if (timer <= 0) {
+    if (auctionState !== "bidding") return;
+    try {
+      const raw = localStorage.getItem(LS.LIVE_STATE);
+      if (!raw) return;
+      const cur = JSON.parse(raw);
+      cur.timer        = timer;
+      cur.timerEnabled = timerEnabled;
+      cur.ts           = Date.now();
+      localStorage.setItem(LS.LIVE_STATE, JSON.stringify(cur));
+    } catch (_) {}
+  }, [timer]);
+
+
+  // ─── Timer ───────────────────────────────────────────────────────────────────
+  // Refs always hold latest values so the interval callback never closes over stale state
+  const timerEnabledRef = useRef(timerEnabled);
+  const auctionStateRef = useRef(auctionState);
+  const leadingTeamRef  = useRef(leadingTeam);
+  const sellRef         = useRef(null);
+  const unsoldRef       = useRef(null);
+
+  useEffect(() => {
+    timerEnabledRef.current = timerEnabled;
+    // If timer is turned OFF mid-auction, kill the running interval
+    if (!timerEnabled) {
+      clearInterval(timerRef.current);
       setTimerActive(false);
-      if (auctionState === "bidding") leadingTeam ? _sell() : _unsold();
-      return;
     }
-    timerRef.current = setInterval(() => setTimer(t => t - 1), 1000);
-    return () => clearInterval(timerRef.current);
-  }, [timerActive, timer, timerEnabled]);
+  }, [timerEnabled]);
+  useEffect(() => { auctionStateRef.current = auctionState; }, [auctionState]);
+  useEffect(() => { leadingTeamRef.current  = leadingTeam;  }, [leadingTeam]);
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
   const addLog = (msg, type = "info") => {
@@ -112,12 +136,32 @@ export default function useAuction() {
     setLog(prev => [...prev.slice(-99), { msg, type, time }]);
   };
 
+  // resetTimer: always imperatively clears + restarts the interval.
+  // Works even when timerActive was already true — no React state diffing needed.
+  // This is the fix: previously, if timerActive was already true, calling
+  // setTimerActive(true) was a no-op, so the useEffect didn't re-run, and the
+  // timer never actually reset after the first bid.
   const resetTimer = useCallback((dur) => {
+    if (!timerEnabledRef.current) return;
     clearInterval(timerRef.current);
     const d = dur ?? timerDuration;
     setTimer(d);
-    if (timerEnabled) setTimerActive(true);
-  }, [timerEnabled, timerDuration]);
+    setTimerActive(true);
+
+    let remaining = d;
+    timerRef.current = setInterval(() => {
+      remaining -= 1;
+      setTimer(remaining);
+      if (remaining <= 0) {
+        clearInterval(timerRef.current);
+        setTimerActive(false);
+        if (auctionStateRef.current === "bidding") {
+          if (leadingTeamRef.current) sellRef.current?.();
+          else unsoldRef.current?.();
+        }
+      }
+    }, 1000);
+  }, [timerDuration]);
 
   // ─── Core bid ─────────────────────────────────────────────────────────────────
   // ✅ FIX: Uses functional updater for bidHistory so writeLive receives the
@@ -262,6 +306,10 @@ export default function useAuction() {
       writeLive("idle", null, 0, null, []);
     }, 2000);
   }, [currentPlayer, currentBid]);
+
+  // Wire refs so the timer interval can call _sell/_unsold without stale closures
+  sellRef.current   = _sell;
+  unsoldRef.current = _unsold;
 
   // ─── Undo last bid ────────────────────────────────────────────────────────────
   const undoLastBid = useCallback(() => {

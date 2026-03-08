@@ -273,7 +273,8 @@ export default function Auction() {
       )}
 
       {/* ══ OTHER TABS ═══════════════════════════════════════════════════════ */}
-      {activeTab === "squads" && <SquadsTab teams={teams} initialBalances={initialBalances} />}
+      {/* {activeTab === "squads" && <SquadsTab teams={teams} initialBalances={initialBalances} />} */}
+      {activeTab === "squads" && <SquadsTab teams={teams} initialBalances={initialBalances} soldPlayers={soldPlayers} />}
       {activeTab === "leaderboard" && <LeaderboardTab teams={teams} />}
       {activeTab === "admin" && (
         <AdminTab

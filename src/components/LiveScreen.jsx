@@ -1,154 +1,230 @@
 import React, { useState, useEffect, useRef } from "react";
 import { fmt, getCategory, catColor, imgProps, LS, fireConfetti, playSound } from "./auctionUtils";
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   LIVE SCREEN  —  open at /live on a projector / second monitor
+const teamLogo = (t) => t?.Logo || t?.logo || null;
 
-   ✅ FIX: Reads ONLY from LS.LIVE_STATE — a single clean object written
-   directly by useAuction at every transition (initPlayer, startBidding,
-   doPlaceBid, _sell, _unsold, undoLastBid, reset).
-
-   No log parsing. No string matching. No race conditions.
-───────────────────────────────────────────────────────────────────────────── */
-
-const teamLogo = (team) => team?.Logo || team?.logo || null;
-
-function TeamAvatar({ team, size = 40 }) {
+function TeamAv({ team, size = 36, border = "2px solid rgba(255,255,255,0.15)" }) {
   const src = teamLogo(team);
   return (
-    <div
-      style={{ width: size, height: size, minWidth: size }}
-      className="rounded-full overflow-hidden bg-[#1e2234] border border-white/10 flex items-center justify-center"
-    >
-      {src ? (
-        <img src={src} alt={team.Name} className="w-full h-full object-cover" />
-      ) : (
-        <span className="text-white font-black" style={{ fontSize: size * 0.4 }}>
-          {team?.Name?.[0]?.toUpperCase() ?? "?"}
-        </span>
-      )}
+    <div style={{ width: size, height: size, minWidth: size, borderRadius: "50%", overflow: "hidden", background: "#1a1d28", border, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {src
+        ? <img src={src} alt={team?.Name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        : <span style={{ color: "#fff", fontWeight: 900, fontSize: size * 0.38 }}>{team?.Name?.[0]?.toUpperCase() ?? "?"}</span>
+      }
     </div>
   );
 }
 
-function PlayerPhoto({ src, alt, glow }) {
+function PlayerPhoto({ src, alt, glow, soldTo }) {
   const extra = imgProps(src);
-  return (
-    <div
-      className="relative rounded-full overflow-hidden border-4 flex-shrink-0"
-      style={{
-        width: 220, height: 220,
-        borderColor: glow === "sold" ? "#10b981" : glow === "unsold" ? "#ef4444" : glow === "bidding" ? "#6366f1" : "#2a2f42",
-        boxShadow:
-          glow === "sold"    ? "0 0 80px rgba(16,185,129,0.55), 0 0 160px rgba(16,185,129,0.2)" :
-          glow === "unsold"  ? "0 0 60px rgba(239,68,68,0.4)" :
-          glow === "bidding" ? "0 0 60px rgba(99,102,241,0.45), 0 0 120px rgba(99,102,241,0.15)" :
-          "0 0 30px rgba(0,0,0,0.5)",
-        transition: "box-shadow 0.5s ease, border-color 0.5s ease",
-      }}
-    >
-      {src ? (
-        <img src={src} alt={alt} className="w-full h-full object-cover" {...extra} />
-      ) : (
-        <div className="w-full h-full bg-[#1e2234] flex items-center justify-center">
-          <span className="text-slate-400 font-black text-7xl">{alt?.[0]?.toUpperCase() ?? "?"}</span>
-        </div>
-      )}
-      {glow === "bidding" && (
-        <div
-          className="absolute inset-0 rounded-full"
-          style={{ animation: "liveRing 2s ease-out infinite", border: "3px solid rgba(99,102,241,0.6)" }}
-        />
-      )}
-    </div>
-  );
-}
+  const ringColor =
+    glow === "sold"    ? "#10b981" :
+    glow === "unsold"  ? "#ef4444" :
+    glow === "bidding" ? "#6366f1" : "#2a2f42";
+  const glowColor =
+    glow === "sold"    ? "0 0 80px rgba(16,185,129,0.6), 0 0 200px rgba(16,185,129,0.2)" :
+    glow === "unsold"  ? "0 0 60px rgba(239,68,68,0.5)" :
+    glow === "bidding" ? "0 0 60px rgba(99,102,241,0.5), 0 0 150px rgba(99,102,241,0.15)" :
+    "none";
 
-function BidDisplay({ bid, state, leadingTeam }) {
   return (
-    <div className="flex flex-col items-center gap-2">
-      <p className="text-xs font-mono uppercase tracking-[0.25em] text-slate-500">
-        {state === "sold" ? "Sold For" : state === "unsold" ? "Base Price" : "Current Bid"}
-      </p>
-
-      {/* key={bid+state} forces re-mount = re-triggers animation on every change */}
-      <div
-        key={`${bid}-${state}`}
-        className="font-black tabular-nums"
-        style={{
-          fontSize: "clamp(3rem, 8vw, 6rem)",
-          lineHeight: 1,
-          color:      state === "sold" ? "#10b981" : state === "unsold" ? "#ef4444" : "#818cf8",
-          textShadow: state === "sold" ? "0 0 60px rgba(16,185,129,0.7)" : state === "unsold" ? "0 0 40px rgba(239,68,68,0.5)" : "0 0 40px rgba(99,102,241,0.6)",
-          animation: "bidPop 0.35s cubic-bezier(0.34,1.56,0.64,1)",
-        }}
-      >
-        {fmt(bid)}
+    <div style={{ position: "relative", flexShrink: 0 }}>
+      {/* Outer decorative ring */}
+      <div style={{
+        width: 300, height: 300, borderRadius: "50%",
+        border: `5px solid ${ringColor}`,
+        boxShadow: glowColor,
+        transition: "border-color 0.5s, box-shadow 0.5s",
+        overflow: "hidden",
+        background: "#0d0f14",
+      }}>
+        {src
+          ? <img src={src} alt={alt} style={{ width: "100%", height: "100%", objectFit: "cover" }} {...extra} />
+          : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ fontSize: 100, fontWeight: 900, color: "#2a2f42" }}>{alt?.[0]?.toUpperCase() ?? "?"}</span>
+            </div>
+        }
       </div>
 
-      {/* Leading team chip */}
-      {leadingTeam && state === "bidding" && (
-        <div
-          className="flex items-center gap-2 px-4 py-2 rounded-full border mt-1"
-          style={{ background: "rgba(99,102,241,0.12)", borderColor: "rgba(99,102,241,0.35)", animation: "fadeSlideUp 0.3s ease" }}
-        >
-          <TeamAvatar team={leadingTeam} size={28} />
-          <span className="text-sm font-black text-white">{leadingTeam.Name}</span>
-          <span className="text-xs text-indigo-400 font-mono">leading</span>
-        </div>
+      {/* Pulse ring when bidding */}
+      {glow === "bidding" && (
+        <div style={{
+          position: "absolute", inset: 0, borderRadius: "50%",
+          border: "4px solid rgba(99,102,241,0.5)",
+          animation: "liveRing 2s ease-out infinite",
+          pointerEvents: "none",
+        }} />
       )}
 
-      {/* Sold chip */}
-      {state === "sold" && leadingTeam && (
-        <div
-          className="flex items-center gap-3 px-5 py-2.5 rounded-full mt-2"
-          style={{ background: "rgba(16,185,129,0.15)", border: "1.5px solid rgba(16,185,129,0.4)", animation: "fadeSlideUp 0.4s ease" }}
-        >
-          <TeamAvatar team={leadingTeam} size={34} />
-          <div>
-            <p className="text-xs text-emerald-500 font-mono uppercase tracking-wider">Sold to</p>
-            <p className="text-xl font-black text-white">{leadingTeam.Name}</p>
-          </div>
-          <span className="text-2xl ml-1">🔨</span>
-        </div>
-      )}
-
-      {/* Unsold chip */}
-      {state === "unsold" && (
-        <div
-          className="px-6 py-2.5 rounded-full text-xl font-black text-red-400 mt-2"
-          style={{ background: "rgba(239,68,68,0.12)", border: "1.5px solid rgba(239,68,68,0.35)", animation: "fadeSlideUp 0.4s ease" }}
-        >
-          😔 UNSOLD
+      {/* SOLD team badge overlay */}
+      {glow === "sold" && soldTo && (
+        <div style={{
+          position: "absolute", bottom: -10, left: "50%", transform: "translateX(-50%)",
+          display: "flex", alignItems: "center", gap: 8,
+          background: "rgba(16,185,129,0.2)", border: "1.5px solid rgba(16,185,129,0.5)",
+          borderRadius: 50, padding: "6px 16px 6px 8px",
+          animation: "fadeSlideUp 0.4s ease",
+        }}>
+          <TeamAv team={soldTo} size={30} border="2px solid #10b981" />
+          <span style={{ color: "#10b981", fontWeight: 900, fontSize: 13, whiteSpace: "nowrap" }}>{soldTo.Name}</span>
         </div>
       )}
     </div>
   );
 }
 
-function BidFeed({ bids }) {
+/* ── Diagonal background slash decorations (matches reference) ── */
+function BgSlashes() {
   return (
-    <div className="flex flex-col gap-1.5 w-full">
-      {bids.length === 0 && (
-        <p className="text-slate-700 text-xs italic text-center py-3">No bids yet</p>
-      )}
-      {bids.map((b, i) => (
-        <div
-          key={i}
-          className="flex items-center justify-between px-3 py-2 rounded-xl"
-          style={{
-            background: i === 0 ? "rgba(99,102,241,0.15)" : "rgba(255,255,255,0.03)",
-            border:     i === 0 ? "1px solid rgba(99,102,241,0.3)" : "1px solid rgba(255,255,255,0.05)",
-            animation:  i === 0 ? "fadeSlideUp 0.3s ease" : "none",
-          }}
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            <TeamAvatar team={b.team} size={24} />
-            <span className={`text-sm font-semibold truncate ${i === 0 ? "text-white" : "text-slate-400"}`}>
-              {b.team?.Name ?? "—"}
-            </span>
-          </div>
-          <span className={`font-mono text-sm font-bold shrink-0 ml-3 ${i === 0 ? "text-indigo-300" : "text-slate-600"}`}>
+    <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", opacity: 0.07 }} preserveAspectRatio="none">
+      {[...Array(8)].map((_, i) => (
+        <line key={i}
+          x1={`${-20 + i * 18}%`} y1="0%" x2={`${10 + i * 18}%`} y2="100%"
+          stroke="white" strokeWidth="40"
+        />
+      ))}
+    </svg>
+  );
+}
+
+/* ── Digital-style countdown timer ── */
+function Timer({ value, enabled }) {
+  if (!enabled) return null;
+  const danger = value <= 5;
+  const warn   = value <= 10;
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+      animation: danger ? "pulse2 0.8s ease infinite" : "none",
+    }}>
+      <span style={{
+        fontFamily: "'Courier New', monospace",
+        fontSize: "clamp(3rem, 7vw, 5.5rem)",
+        fontWeight: 900,
+        lineHeight: 1,
+        color: danger ? "#ef4444" : warn ? "#f59e0b" : "#e2e8f0",
+        textShadow: danger ? "0 0 30px rgba(239,68,68,0.8)" : warn ? "0 0 20px rgba(245,158,11,0.6)" : "0 0 15px rgba(255,255,255,0.2)",
+        letterSpacing: "-0.02em",
+      }}>{String(value).padStart(2, "0")}</span>
+      <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", fontFamily: "monospace", letterSpacing: "0.2em" }}>SEC</span>
+    </div>
+  );
+}
+
+/* ── Giant bid display (top right, yellow like reference) ── */
+function BidAmount({ bid, state }) {
+  const color =
+    state === "sold"   ? "#10b981" :
+    state === "unsold" ? "#ef4444" : "#facc15";
+  const shadow =
+    state === "sold"   ? "0 0 60px rgba(16,185,129,0.8)" :
+    state === "unsold" ? "0 0 40px rgba(239,68,68,0.6)"  :
+    "0 0 50px rgba(250,204,21,0.7), 0 0 100px rgba(250,204,21,0.2)";
+
+  return (
+    <div key={`${bid}-${state}`} style={{ textAlign: "right" }}>
+      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontFamily: "monospace", letterSpacing: "0.2em", marginBottom: 4 }}>
+        {state === "sold" ? "SOLD FOR" : state === "unsold" ? "UNSOLD" : "CURRENT BID"}
+      </div>
+      <div style={{
+        fontSize: "clamp(3.5rem, 9vw, 7rem)",
+        fontWeight: 900,
+        lineHeight: 1,
+        color,
+        textShadow: shadow,
+        fontFamily: "'Courier New', monospace",
+        letterSpacing: "-0.02em",
+        animation: "bidPop 0.4s cubic-bezier(0.34,1.56,0.64,1)",
+      }}>
+        {fmt(bid)}
+      </div>
+    </div>
+  );
+}
+
+/* ── Player name + attributes in wide dark banner pills (like reference) ── */
+function PlayerBanners({ player, cat, cc }) {
+  if (!player) return null;
+  const name = player.name ?? player.Name ?? "";
+  // Extra fields except photo/no/name/category
+  const extras = Object.entries(player)
+    .filter(([k, v]) => v && !["photourl","photoURL","No","Name","name","category","Category"].includes(k))
+    .slice(0, 3); // max 3 extra rows
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+      {/* Player # + category */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{
+          width: 44, height: 44, borderRadius: "50%",
+          background: "rgba(99,102,241,0.25)", border: "2px solid rgba(99,102,241,0.6)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 16, fontWeight: 900, color: "#a5b4fc",
+        }}>#{player.No}</div>
+        {cat && (
+          <span style={{
+            padding: "4px 14px", borderRadius: 20, fontSize: 12, fontWeight: 900,
+            border: "1.5px solid",
+          }} className={cc}>{cat}</span>
+        )}
+      </div>
+
+      {/* Name banner — wide dark pill */}
+      <div style={{
+        background: "rgba(0,0,0,0.55)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderLeft: "4px solid #6366f1",
+        borderRadius: "0 12px 12px 0",
+        padding: "14px 28px",
+        backdropFilter: "blur(8px)",
+      }}>
+        <span style={{
+          fontSize: "clamp(1.6rem, 4vw, 2.8rem)",
+          fontWeight: 900,
+          color: "#fff",
+          letterSpacing: "0.04em",
+          textTransform: "uppercase",
+          textShadow: "0 2px 20px rgba(99,102,241,0.4)",
+        }}>{name}</span>
+      </div>
+
+      {/* Extra field banners */}
+      {extras.map(([k, v], i) => (
+        <div key={k} style={{
+          background: "rgba(0,0,0,0.45)",
+          border: "1px solid rgba(255,255,255,0.06)",
+          borderLeft: `4px solid ${i === 0 ? "#f59e0b" : i === 1 ? "#10b981" : "#8b5cf6"}`,
+          borderRadius: "0 10px 10px 0",
+          padding: "10px 24px",
+          backdropFilter: "blur(6px)",
+          display: "flex", alignItems: "center", gap: 10,
+        }}>
+          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", fontFamily: "monospace", letterSpacing: "0.15em", textTransform: "uppercase", minWidth: 60 }}>{k}</span>
+          <span style={{ fontSize: "clamp(1rem, 2.5vw, 1.4rem)", fontWeight: 800, color: "#e2e8f0", textTransform: "uppercase", letterSpacing: "0.05em" }}>{v}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ── Bottom team bar ── */
+
+
+/* ── Bid feed — compact horizontal chips ── */
+function BidChips({ bidFeed }) {
+  if (!bidFeed?.length) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      {bidFeed.slice(0, 6).map((b, i) => (
+        <div key={i} style={{
+          display: "flex", alignItems: "center", gap: 6,
+          padding: "4px 10px 4px 6px", borderRadius: 20,
+          background: i === 0 ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.04)",
+          border: i === 0 ? "1px solid rgba(99,102,241,0.4)" : "1px solid rgba(255,255,255,0.06)",
+          animation: i === 0 ? "fadeSlideUp 0.3s ease" : "none",
+        }}>
+          <TeamAv team={b.team} size={20} border="none" />
+          <span style={{ fontSize: 11, fontWeight: 700, color: i === 0 ? "#a5b4fc" : "rgba(255,255,255,0.4)", fontFamily: "monospace" }}>
             {fmt(b.amount)}
           </span>
         </div>
@@ -157,73 +233,9 @@ function BidFeed({ bids }) {
   );
 }
 
-function TeamStandings({ teams }) {
-  const sorted = [...teams].sort((a, b) => b.squadPlayers.length - a.squadPlayers.length);
-  return (
-    <div className="flex flex-col gap-2">
-      {sorted.map((team, i) => {
-        const spent = team.squadPlayers.reduce((s, p) => s + (parseInt(p.soldFor) || 0), 0);
-        return (
-          <div
-            key={team.No}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
-            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}
-          >
-            <span className="text-[11px] text-slate-600 font-mono w-4 shrink-0">#{i + 1}</span>
-            <TeamAvatar team={team} size={28} />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-slate-300 font-semibold truncate">{team.Name}</p>
-              <p className="text-[10px] text-slate-600">{team.squadPlayers.length}/{team.maxPlayers} players</p>
-            </div>
-            <div className="text-right shrink-0">
-              <p className="text-[10px] text-emerald-400 font-mono">{fmt(team.balance)}</p>
-              {spent > 0 && <p className="text-[10px] text-slate-700 font-mono">-{fmt(spent)}</p>}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function RecentlySold({ soldPlayers }) {
-  const last5 = [...soldPlayers].reverse().slice(0, 5);
-  if (!last5.length) return null;
-  return (
-    <div className="flex flex-col gap-1.5">
-      {last5.map((s, i) => (
-        <div key={i} className="flex items-center justify-between text-xs px-2 py-1 rounded-lg"
-          style={{ background: "rgba(16,185,129,0.05)" }}>
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-5 h-5 rounded-full overflow-hidden bg-[#1e2234] shrink-0">
-              {(s.player.photourl || s.player.photoURL)
-                ? <img src={s.player.photourl || s.player.photoURL} alt="" className="w-full h-full object-cover" {...imgProps(s.player.photourl || s.player.photoURL)} />
-                : <span className="text-[8px] flex items-center justify-center h-full text-slate-500">{(s.player.name ?? s.player.Name)?.[0]}</span>
-              }
-            </div>
-            <span className="text-slate-400 truncate">{s.player.name ?? s.player.Name}</span>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-slate-600">{s.team.Name}</span>
-            <span className="text-emerald-400 font-mono font-bold">{fmt(s.price)}</span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /* ─── MAIN ─────────────────────────────────────────────────────────────────── */
 export default function LiveScreen() {
-  // ✅ FIX: Single state object read from LS.LIVE_STATE
-  const [live, setLive] = useState({
-    auctionState: "idle",
-    player:       null,
-    bid:          0,
-    leadingTeam:  null,
-    bidFeed:      [],
-  });
-
+  const [live, setLive] = useState({ auctionState: "idle", player: null, bid: 0, leadingTeam: null, bidFeed: [], timer: 15, timerEnabled: true });
   const [teams, setTeams]             = useState([]);
   const [soldPlayers, setSoldPlayers] = useState([]);
   const [view, setView]               = useState("live");
@@ -234,38 +246,23 @@ export default function LiveScreen() {
 
   const poll = () => {
     try {
-      // ── teams + sold (for standings panel) ──
       const rawTeams = localStorage.getItem(LS.TEAM_STATE);
       const rawSold  = localStorage.getItem(LS.SOLD);
       if (rawTeams) setTeams(JSON.parse(rawTeams));
       if (rawSold)  setSoldPlayers(JSON.parse(rawSold));
 
-      // ── ✅ FIX: Read the single live state object — no log parsing ──
       const raw = localStorage.getItem(LS.LIVE_STATE);
       if (!raw) return;
       const next = JSON.parse(raw);
-
-      // Skip if nothing changed (ts is bumped on every writeLive call)
       if (next.ts === prevTs.current) return;
       prevTs.current = next.ts;
 
-      const { auctionState: newState, bid: newBid } = next;
-
-      // Fire effects only on actual transitions
-      if (newState === "bidding" && newBid !== prevBid.current && newBid > 0) {
-        playSound("bid");
-      }
-      if (prevState.current !== "sold" && newState === "sold") {
-        playSound("sold");
-        fireConfetti();
-      }
-      if (prevState.current !== "unsold" && newState === "unsold") {
-        playSound("unsold");
-      }
-
-      prevState.current = newState;
-      prevBid.current   = newBid;
-
+      const { auctionState: ns, bid: nb } = next;
+      if (ns === "bidding" && nb !== prevBid.current && nb > 0) playSound("bid");
+      if (prevState.current !== "sold"   && ns === "sold")   { playSound("sold");   fireConfetti(); }
+      if (prevState.current !== "unsold" && ns === "unsold") { playSound("unsold"); }
+      prevState.current = ns;
+      prevBid.current   = nb;
       setLive(next);
     } catch (_) {}
   };
@@ -273,193 +270,262 @@ export default function LiveScreen() {
   useEffect(() => {
     poll();
     const id = setInterval(poll, 400);
-    const onStorage = (e) => {
-      // ✅ FIX: Only need to watch LIVE_STATE — it's the single source of truth
-      if (e.key === LS.LIVE_STATE || e.key === LS.TEAM_STATE || e.key === LS.SOLD) poll();
-    };
+    const onStorage = (e) => { if ([LS.LIVE_STATE, LS.TEAM_STATE, LS.SOLD].includes(e.key)) poll(); };
     window.addEventListener("storage", onStorage);
     return () => { clearInterval(id); window.removeEventListener("storage", onStorage); };
   }, []);
 
-  const { auctionState, player, bid, leadingTeam, bidFeed } = live;
+  const { auctionState, player, bid, leadingTeam, bidFeed, timer, timerEnabled } = live;
   const cat = player ? getCategory(player) : null;
   const cc  = cat ? catColor(cat) : "";
 
   return (
     <>
       <style>{`
-        @keyframes liveRing   { 0%{transform:scale(1);opacity:.7} 100%{transform:scale(1.5);opacity:0} }
-        @keyframes bidPop     { 0%{transform:scale(.85);opacity:.5} 60%{transform:scale(1.06);opacity:1} 100%{transform:scale(1);opacity:1} }
-        @keyframes fadeSlideUp{ from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes soldBounce { 0%,100%{transform:scale(1)} 25%{transform:scale(1.12)} 50%{transform:scale(.96)} 75%{transform:scale(1.05)} }
-        @keyframes unsoldFade { from{opacity:1;filter:grayscale(0)} to{opacity:.65;filter:grayscale(1)} }
-        @keyframes pulse2     { 0%,100%{opacity:1} 50%{opacity:.4} }
+        @keyframes liveRing    { 0%{transform:scale(1);opacity:.6} 100%{transform:scale(1.6);opacity:0} }
+        @keyframes bidPop      { 0%{transform:scale(.8);opacity:.4} 65%{transform:scale(1.05);opacity:1} 100%{transform:scale(1);opacity:1} }
+        @keyframes fadeSlideUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes soldBounce  { 0%,100%{transform:scale(1)} 30%{transform:scale(1.08)} 60%{transform:scale(.97)} 80%{transform:scale(1.03)} }
+        @keyframes unsoldGrey  { to{filter:grayscale(1);opacity:.5} }
+        @keyframes pulse2      { 0%,100%{opacity:1} 50%{opacity:.3} }
+        @keyframes shimmer     { 0%{opacity:.4} 50%{opacity:.8} 100%{opacity:.4} }
       `}</style>
 
-      <div
-        className="h-screen text-white flex flex-col overflow-hidden"
-        style={{ background: "linear-gradient(135deg, #070910 0%, #0c0f1a 50%, #070910 100%)" }}
-      >
-        {/* ══ HEADER ══════════════════════════════════════════════════════ */}
-        <div
-          className="w-full flex items-center justify-between px-6 py-3 shrink-0"
-          style={{ background: "rgba(7,9,16,0.9)", borderBottom: "1px solid rgba(255,255,255,0.06)", backdropFilter: "blur(12px)" }}
-        >
-          <div className="flex items-center gap-3">
-            <span className="text-xl">🏏</span>
-            <span className="font-black text-lg tracking-[0.15em] uppercase text-slate-200">Live Auction</span>
-          </div>
+      <div style={{
+        height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden",
+        background: "linear-gradient(135deg, #0d0f14 0%, #0f1117 50%, #0d0f14 100%)",
+        color: "#fff", fontFamily: "system-ui, sans-serif", position: "relative",
+      }}>
 
-          <div className="flex items-center gap-5 text-xs font-mono">
-            <span className="text-slate-500">✅ <span className="text-emerald-400 font-bold">{soldPlayers.length}</span> sold</span>
-            <span className="text-slate-500">🏆 <span className="text-slate-300 font-bold">{teams.length}</span> teams</span>
-            <div
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full ${auctionState === "bidding" ? "bg-red-500/15 text-red-400" : "bg-slate-800 text-slate-600"}`}
-              style={{ border: auctionState === "bidding" ? "1px solid rgba(239,68,68,0.35)" : "1px solid rgba(255,255,255,0.06)" }}
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${auctionState === "bidding" ? "bg-red-400" : "bg-slate-600"}`}
-                style={auctionState === "bidding" ? { animation: "pulse2 1.2s ease infinite" } : {}}
-              />
-              <span className="uppercase tracking-widest text-[10px] font-black">
-                {auctionState === "bidding" ? "LIVE" : auctionState === "idle" ? "WAITING" : auctionState.toUpperCase()}
-              </span>
+        {/* ── Diagonal slash bg decorations ── */}
+        <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", opacity: 0.04 }} preserveAspectRatio="none">
+          {[...Array(10)].map((_, i) => (
+            <line key={i} x1={`${-10 + i * 14}%`} y1="0%" x2={`${15 + i * 14}%`} y2="100%" stroke="white" strokeWidth="60" />
+          ))}
+        </svg>
+
+        {/* ══ HEADER BAR ════════════════════════════════════════════════════ */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "10px 24px", borderBottom: "1px solid rgba(255,255,255,0.07)",
+          background: "rgba(7,9,16,0.85)", backdropFilter: "blur(12px)",
+          position: "relative", zIndex: 10, flexShrink: 0,
+        }}>
+          {/* Left: league branding */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 38, height: 38, borderRadius: 8, background: "rgba(99,102,241,0.2)", border: "1.5px solid rgba(99,102,241,0.4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🏏</div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: "0.2em", color: "#a5b4fc", textTransform: "uppercase" }}>Players Auction</div>
+              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", fontFamily: "monospace", letterSpacing: "0.1em" }}>LIVE BROADCAST</div>
             </div>
           </div>
 
-          <div className="flex gap-1.5 bg-[#13161e] p-1 rounded-lg" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
-            {["live", "squads"].map(v => (
-              <button key={v} onClick={() => setView(v)}
-                className={`px-3 py-1 rounded-md text-xs font-bold capitalize transition-colors ${view === v ? "bg-indigo-500 text-white" : "text-slate-500 hover:text-slate-300"}`}>
-                {v}
-              </button>
-            ))}
+          {/* Center: status pill */}
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8, padding: "6px 18px", borderRadius: 50,
+            background: auctionState === "bidding" ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.04)",
+            border: auctionState === "bidding" ? "1.5px solid rgba(239,68,68,0.4)" : "1px solid rgba(255,255,255,0.08)",
+          }}>
+            <div style={{
+              width: 8, height: 8, borderRadius: "50%",
+              background: auctionState === "bidding" ? "#ef4444" : "#374151",
+              animation: auctionState === "bidding" ? "pulse2 1s ease infinite" : "none",
+            }} />
+            <span style={{ fontSize: 11, fontWeight: 900, letterSpacing: "0.2em", color: auctionState === "bidding" ? "#fca5a5" : "rgba(255,255,255,0.3)" }}>
+              {auctionState === "bidding" ? "LIVE" : auctionState === "idle" ? "WAITING" : auctionState.toUpperCase()}
+            </span>
+          </div>
+
+          {/* Right: stats + view toggle */}
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", fontFamily: "monospace", letterSpacing: "0.1em" }}>SOLD / TEAMS</div>
+              <div style={{ fontSize: 13, fontWeight: 900, color: "#e2e8f0" }}>
+                <span style={{ color: "#10b981" }}>{soldPlayers.length}</span>
+                <span style={{ color: "rgba(255,255,255,0.2)", margin: "0 4px" }}>/</span>
+                {teams.length}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.05)", padding: 4, borderRadius: 8 }}>
+              {["live","squads"].map(v => (
+                <button key={v} onClick={() => setView(v)} style={{
+                  padding: "4px 12px", borderRadius: 6, border: "none", cursor: "pointer",
+                  background: view === v ? "#6366f1" : "transparent",
+                  color: view === v ? "#fff" : "rgba(255,255,255,0.4)",
+                  fontSize: 11, fontWeight: 700, textTransform: "capitalize", letterSpacing: "0.05em",
+                }}>{v}</button>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* ══ LIVE VIEW ═══════════════════════════════════════════════════ */}
+        {/* ══ LIVE VIEW ═════════════════════════════════════════════════════ */}
         {view === "live" && (
-          <div className="flex flex-1 overflow-hidden min-h-0">
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative", zIndex: 1 }}>
 
-            {/* ── Centre spotlight ── */}
-            <div className="flex-1 flex flex-col items-center justify-center gap-6 px-8 py-6 relative">
+            {/* Main content area */}
+            <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 0, padding: "24px 32px", minHeight: 0, overflow: "hidden" }}>
 
-              {/* background glow blob */}
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div style={{
-                  width: 500, height: 500, borderRadius: "50%",
-                  background:
-                    auctionState === "sold"    ? "radial-gradient(circle, rgba(16,185,129,0.08) 0%, transparent 70%)" :
-                    auctionState === "unsold"  ? "radial-gradient(circle, rgba(239,68,68,0.07) 0%, transparent 70%)" :
-                    auctionState === "bidding" ? "radial-gradient(circle, rgba(99,102,241,0.1) 0%, transparent 70%)" :
-                    "none",
-                  transition: "background 0.8s ease",
-                }} />
+              {/* ── LEFT: Player photo with # badge ── */}
+              <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 16, marginRight: 36 }}>
+                {/* Player number — top of photo like reference */}
+                {player && (
+                  <div style={{
+                    width: 52, height: 52, borderRadius: "50%",
+                    background: "rgba(99,102,241,0.25)", border: "2.5px solid rgba(99,102,241,0.7)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 20, fontWeight: 900, color: "#c7d2fe",
+                    boxShadow: "0 0 20px rgba(99,102,241,0.4)",
+                  }}>{player.No}</div>
+                )}
+
+                <div style={{ animation: auctionState === "sold" ? "soldBounce .7s ease .1s" : auctionState === "unsold" ? "unsoldGrey .8s ease forwards .3s" : "none" }}>
+                  <PlayerPhoto
+                    src={player?.photourl || player?.photoURL}
+                    alt={player?.name ?? player?.Name ?? "?"}
+                    glow={auctionState}
+                    soldTo={auctionState === "sold" ? leadingTeam : null}
+                  />
+                </div>
+
+                {/* Category badge under photo */}
+                {cat && player && (
+                  <span style={{
+                    padding: "5px 18px", borderRadius: 20, fontSize: 11, fontWeight: 900,
+                    letterSpacing: "0.12em", textTransform: "uppercase",
+                  }} className={cc}>{cat}</span>
+                )}
               </div>
 
-              {!player ? (
-                <div className="flex flex-col items-center gap-4 text-slate-700 relative z-10">
-                  <span className="text-6xl">🏏</span>
-                  <p className="text-2xl font-black tracking-widest uppercase">Waiting for next player…</p>
-                  <p className="text-sm text-slate-600">The auctioneer is selecting a player</p>
-                </div>
-              ) : (
-                <div
-                  className="flex flex-col items-center gap-5 relative z-10"
-                  style={auctionState === "unsold" ? { animation: "unsoldFade 1s ease forwards 0.5s" } : {}}
-                >
-                  {/* Player photo */}
-                  <div style={auctionState === "sold" ? { animation: "soldBounce 0.6s ease 0.1s" } : {}}>
-                    <PlayerPhoto
-                      src={player.photourl || player.photoURL}
-                      alt={player.name ?? player.Name}
-                      glow={auctionState}
-                    />
+              {/* ── CENTER: Name banners + bid feed ── */}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
+
+                {!player ? (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 16, color: "rgba(255,255,255,0.15)" }}>
+                    <div style={{ fontSize: 64 }}>🏏</div>
+                    <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: "0.2em", textTransform: "uppercase" }}>Waiting for next player…</div>
+                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.1)", fontFamily: "monospace" }}>The auctioneer is selecting a player</div>
                   </div>
+                ) : (
+                  <>
+                    <PlayerBanners player={player} cat={cat} cc={cc} />
 
-                  {/* Name + badges */}
-                  <div className="text-center">
-                    <div className="flex items-center justify-center gap-2 mb-2 flex-wrap">
-                      <span className="text-xs font-mono text-slate-500 bg-[#1e2234] px-2 py-0.5 rounded">
-                        #{player.No}
-                      </span>
-                      {cat && (
-                        <span className={`text-xs font-black px-2.5 py-0.5 rounded-full border ${cc}`}>
-                          {cat}
-                        </span>
-                      )}
-                    </div>
+                    {/* Bid feed chips */}
+                    {bidFeed?.length > 0 && (
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", fontFamily: "monospace", letterSpacing: "0.15em", marginBottom: 6 }}>
+                          {auctionState === "bidding" ? "🔴 LIVE BIDS" : "RECENT BIDS"}
+                        </div>
+                        <BidChips bidFeed={bidFeed} />
+                      </div>
+                    )}
 
-                    <h1
-                      className="font-black text-white tracking-tight"
-                      style={{
-                        fontSize: "clamp(2rem, 5vw, 4rem)",
-                        textShadow:
-                          auctionState === "sold"    ? "0 0 40px rgba(16,185,129,0.5)" :
-                          auctionState === "bidding" ? "0 0 30px rgba(99,102,241,0.5)" :
-                          "none",
-                      }}
-                    >
-                      {player.name ?? player.Name}
-                    </h1>
+                    {/* No bids yet message */}
+                    {auctionState === "bidding" && bid === 0 && (
+                      <p style={{ fontSize: 13, color: "rgba(255,255,255,0.2)", fontStyle: "italic" }}>No bids yet…</p>
+                    )}
 
-                    {/* Extra fields */}
-                    <div className="flex items-center justify-center gap-4 mt-2 flex-wrap">
-                      {Object.entries(player)
-                        .filter(([k]) => !["photourl","photoURL","No","Name","name","category","Category"].includes(k))
-                        .map(([k, v]) => v ? (
-                          <span key={k} className="text-sm text-slate-400">
-                            <span className="text-slate-600 capitalize">{k}: </span>{v}
-                          </span>
-                        ) : null)}
+                    {/* UNSOLD banner */}
+                    {auctionState === "unsold" && (
+                      <div style={{
+                        display: "inline-flex", alignItems: "center", gap: 10,
+                        padding: "12px 28px", borderRadius: 8,
+                        background: "rgba(239,68,68,0.12)", border: "1.5px solid rgba(239,68,68,0.35)",
+                        animation: "fadeSlideUp .4s ease",
+                      }}>
+                        <span style={{ fontSize: 22 }}>😔</span>
+                        <span style={{ fontSize: 24, fontWeight: 900, color: "#f87171", letterSpacing: "0.1em" }}>UNSOLD</span>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* ── RIGHT: Timer (top) + Bid amount (big, yellow) + Leading team ── */}
+              <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "center", gap: 20, marginLeft: 36, minWidth: 220 }}>
+
+                {/* Timer */}
+                {auctionState === "bidding" && (
+                  <Timer value={timer ?? 15} enabled={timerEnabled ?? true} />
+                )}
+
+                {/* Big bid amount */}
+                {(auctionState === "bidding" || auctionState === "sold") && bid > 0 && (
+                  <BidAmount bid={bid} state={auctionState} />
+                )}
+
+                {/* Leading team card */}
+                {leadingTeam && auctionState === "bidding" && (
+                  <div style={{
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+                    padding: "12px 18px", borderRadius: 14,
+                    background: "rgba(99,102,241,0.12)", border: "1.5px solid rgba(99,102,241,0.35)",
+                    animation: "fadeSlideUp .3s ease",
+                  }}>
+                    <TeamAv team={leadingTeam} size={56} border="2.5px solid #6366f1" />
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 9, color: "rgba(165,180,252,0.7)", fontFamily: "monospace", letterSpacing: "0.15em" }}>LEADING</div>
+                      <div style={{ fontSize: 13, fontWeight: 900, color: "#c7d2fe" }}>{leadingTeam.Name}</div>
+                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", fontFamily: "monospace" }}>{fmt(leadingTeam.balance - bid)} left</div>
                     </div>
                   </div>
+                )}
 
-                  {/* Bid amount */}
-                  {(auctionState === "bidding" || auctionState === "sold" || auctionState === "unsold") && bid > 0 && (
-                    <BidDisplay bid={bid} state={auctionState} leadingTeam={leadingTeam} />
-                  )}
-                  {auctionState === "bidding" && bid === 0 && (
-                    <p className="text-slate-600 italic text-sm">No bids yet…</p>
-                  )}
-                </div>
-              )}
+                {/* Sold to card */}
+                {leadingTeam && auctionState === "sold" && (
+                  <div style={{
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+                    padding: "12px 20px", borderRadius: 14,
+                    background: "rgba(16,185,129,0.15)", border: "1.5px solid rgba(16,185,129,0.45)",
+                    animation: "fadeSlideUp .4s ease",
+                  }}>
+                    <TeamAv team={leadingTeam} size={60} border="2.5px solid #10b981" />
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 9, color: "rgba(110,231,183,0.8)", fontFamily: "monospace", letterSpacing: "0.15em" }}>SOLD TO</div>
+                      <div style={{ fontSize: 14, fontWeight: 900, color: "#6ee7b7" }}>{leadingTeam.Name}</div>
+                    </div>
+                    <div style={{ fontSize: 22 }}>🔨</div>
+                  </div>
+                )}
+              </div>
             </div>
- 
-          
+
+            {/* ══ BOTTOM TEAM BAR ══════════════════════════════════════════ */}
+            {/* <TeamBar teams={teams} leadingTeam={leadingTeam} auctionState={auctionState} /> */}
           </div>
         )}
 
-        {/* ══ SQUADS VIEW ═════════════════════════════════════════════════ */}
+        {/* ══ SQUADS VIEW ═══════════════════════════════════════════════════ */}
         {view === "squads" && (
-          <div className="flex-1 overflow-y-auto p-6">
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+          <div style={{ flex: 1, overflowY: "auto", padding: 24, position: "relative", zIndex: 1 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 16 }}>
               {teams.map(team => {
                 const spent = team.squadPlayers.reduce((s, p) => s + (parseInt(p.soldFor) || 0), 0);
                 return (
-                  <div key={team.No}
-                    className="rounded-2xl p-4 flex flex-col gap-3"
-                    style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
-                    <div className="flex items-center gap-3">
-                      <TeamAvatar team={team} size={38} />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-black text-slate-200 truncate text-sm">{team.Name}</p>
-                        <p className="text-[10px] text-emerald-400 font-mono">{fmt(team.balance)}</p>
+                  <div key={team.No} style={{
+                    background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)",
+                    borderRadius: 16, padding: 16, display: "flex", flexDirection: "column", gap: 12,
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <TeamAv team={team} size={38} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 900, color: "#e2e8f0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{team.Name}</div>
+                        <div style={{ fontSize: 10, color: "#10b981", fontFamily: "monospace" }}>{fmt(team.balance)}</div>
                       </div>
                     </div>
-                    <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
-                      {!team.squadPlayers.length && <p className="text-slate-700 text-xs italic">No players</p>}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 160, overflowY: "auto" }}>
+                      {!team.squadPlayers.length && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", fontStyle: "italic" }}>No players yet</div>}
                       {team.squadPlayers.map((p, i) => (
-                        <div key={i} className="flex items-center justify-between text-xs">
-                          <span className="text-slate-400 truncate">{p.name ?? p.Name}</span>
-                          <span className="text-indigo-400 font-mono shrink-0 ml-2">{fmt(p.soldFor)}</span>
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                          <span style={{ color: "rgba(255,255,255,0.5)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name ?? p.Name}</span>
+                          <span style={{ color: "#818cf8", fontFamily: "monospace", flexShrink: 0, marginLeft: 8 }}>{fmt(p.soldFor)}</span>
                         </div>
                       ))}
                     </div>
                     {team.squadPlayers.length > 0 && (
-                      <div className="flex justify-between text-xs pt-1" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                        <span className="text-slate-600">{team.squadPlayers.length} players · spent</span>
-                        <span className="text-red-400 font-mono">{fmt(spent)}</span>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                        <span style={{ color: "rgba(255,255,255,0.3)" }}>{team.squadPlayers.length} players</span>
+                        <span style={{ color: "#f87171", fontFamily: "monospace" }}>-{fmt(spent)}</span>
                       </div>
                     )}
                   </div>
@@ -472,33 +538,3 @@ export default function LiveScreen() {
     </>
   );
 }
-
-
-
-
-  // <div
-  //             className="w-72 shrink-0 flex flex-col overflow-hidden"
-  //             style={{ background: "rgba(7,9,16,0.7)", borderLeft: "1px solid rgba(255,255,255,0.05)", backdropFilter: "blur(8px)" }}
-  //           >
-  //             {/* Live bid feed */}
-  //             <div className="p-4 overflow-y-auto" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)", maxHeight: "45%" }}>
-  //               <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-slate-600 mb-3">
-  //                 {auctionState === "bidding" ? "🔴 Live Bids" : "Recent Bids"}
-  //               </p>
-  //               <BidFeed bids={bidFeed} />
-  //             </div>
-
-  //             {/* Team standings */}
-  //             <div className="p-4 overflow-y-auto flex-1">
-  //               <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-slate-600 mb-3">Team Standings</p>
-  //               <TeamStandings teams={teams} />
-  //             </div>
-
-  //             {/* Recently sold */}
-  //             {soldPlayers.length > 0 && (
-  //               <div className="p-4" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-  //                 <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-slate-600 mb-2">Recently Sold</p>
-  //                 <RecentlySold soldPlayers={soldPlayers} />
-  //               </div>
-  //             )}
-  //           </div>
