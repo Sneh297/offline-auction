@@ -8,6 +8,10 @@ import LiveScreen from './components/LiveScreen'
 import AddLicense from './pages/AddLicense'
 import ProtectedRoute from './utils/ProtectedRoute'
 
+
+
+
+
 function App() {
 
 
@@ -24,7 +28,9 @@ function App() {
 
             <Route path='/view' element={<ViewFromLocalStorage />} />
             <Route path='/auction' element={<Auction />} /> 
-              <Route path='/live'   element={<LiveScreen/>} />
+              <Route path='/live'   element={    
+      <LiveScreen />
+                } />
 
         </Route>
 

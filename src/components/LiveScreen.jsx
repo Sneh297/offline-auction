@@ -208,7 +208,41 @@ function PlayerBanners({ player, cat, cc }) {
 }
 
 /* ── Bottom team bar ── */
-
+function TeamBar({ teams, leadingTeam, auctionState }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 6,
+      background: "rgba(0,0,0,0.7)", borderTop: "1px solid rgba(255,255,255,0.08)",
+      backdropFilter: "blur(12px)", padding: "8px 20px", flexWrap: "wrap",
+    }}>
+      {teams.map(team => {
+        const isLeading = leadingTeam?.No === team.No && auctionState === "bidding";
+        const isSold    = leadingTeam?.No === team.No && auctionState === "sold";
+        return (
+          <div key={team.No} style={{
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+            padding: "4px 10px", borderRadius: 8, minWidth: 52,
+            background: isLeading ? "rgba(99,102,241,0.25)" : isSold ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.03)",
+            border: isLeading ? "1.5px solid rgba(99,102,241,0.6)" : isSold ? "1.5px solid rgba(16,185,129,0.5)" : "1px solid rgba(255,255,255,0.07)",
+            transition: "all 0.3s ease",
+            boxShadow: isLeading ? "0 0 16px rgba(99,102,241,0.4)" : "none",
+          }}>
+            <TeamAv team={team} size={28} border={isLeading ? "2px solid #6366f1" : isSold ? "2px solid #10b981" : "1px solid rgba(255,255,255,0.15)"} />
+            <span style={{
+              fontSize: 9, fontWeight: 900, color: isLeading ? "#a5b4fc" : isSold ? "#6ee7b7" : "rgba(255,255,255,0.5)",
+              fontFamily: "monospace", letterSpacing: "0.05em", textTransform: "uppercase",
+            }}>
+              {(team.Name ?? "").slice(0, 4)}
+            </span>
+            <span style={{ fontSize: 8, color: "rgba(255,255,255,0.3)", fontFamily: "monospace" }}>
+              {fmt(team.balance).replace("₹","").replace(",000","K")}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /* ── Bid feed — compact horizontal chips ── */
 function BidChips({ bidFeed }) {
@@ -361,13 +395,13 @@ export default function LiveScreen() {
 
         {/* ══ LIVE VIEW ═════════════════════════════════════════════════════ */}
         {view === "live" && (
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative", zIndex: 1 }}>
+          <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative", zIndex: 1 }}>
 
             {/* Main content area */}
-            <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 0, padding: "24px 32px", minHeight: 0, overflow: "hidden" }}>
+            <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "stretch", gap: 0, padding: player ? "24px 32px" : "16px 24px", overflow: "hidden" }}>
 
-              {/* ── LEFT: Player photo with # badge ── */}
-              <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 16, marginRight: 36 }}>
+              {/* ── LEFT: Player photo with # badge — hidden when no player ── */}
+              <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 16, marginRight: player ? 36 : 0, width: player ? undefined : 0, overflow: "hidden", transition: "width 0.3s" }}>
                 {/* Player number — top of photo like reference */}
                 {player && (
                   <div style={{
@@ -398,13 +432,59 @@ export default function LiveScreen() {
               </div>
 
               {/* ── CENTER: Name banners + bid feed ── */}
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
+              <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", gap: 16, overflow: "hidden" }}>
 
                 {!player ? (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 16, color: "rgba(255,255,255,0.15)" }}>
-                    <div style={{ fontSize: 64 }}>🏏</div>
-                    <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: "0.2em", textTransform: "uppercase" }}>Waiting for next player…</div>
-                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.1)", fontFamily: "monospace" }}>The auctioneer is selecting a player</div>
+                  <div style={{ width: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 12, overflow: "hidden" }}>
+                    {/* Waiting header */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 10, borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
+                      <div style={{ fontSize: 18 }}>🏏</div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.2)" }}>Waiting for next player</div>
+                        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.1)", fontFamily: "monospace", letterSpacing: "0.1em" }}>TEAM BALANCES</div>
+                      </div>
+                    </div>
+                    {/* Team balance grid — fills all available space, no scroll */}
+                    <div style={{
+                      flex: 1,
+                      minHeight: 0,
+                      display: "grid",
+                      gridTemplateColumns: `repeat(${Math.max(1, Math.ceil(Math.sqrt(teams.length || 1)) + 1)}, 1fr)`,
+                      gridTemplateRows: `repeat(${Math.ceil((teams.length || 1) / Math.max(1, Math.ceil(Math.sqrt(teams.length || 1)) + 1))}, 1fr)`,
+                      gap: 10,
+                      overflow: "hidden",
+                    }}>
+                      {teams.map(team => {
+                        const maxBal = Math.max(...teams.map(t => parseInt(t.balance) || 0), 1);
+                        const bal = parseInt(team.balance) || 0;
+                        const pct = Math.round((bal / maxBal) * 100);
+                        const spent = team.squadPlayers?.reduce((s, p) => s + (parseInt(p.soldFor) || 0), 0) || 0;
+                        return (
+                          <div key={team.No} style={{
+                            background: "rgba(255,255,255,0.04)",
+                            border: "1px solid rgba(255,255,255,0.09)",
+                            borderRadius: 14,
+                            padding: "14px 18px",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 10,
+                            overflow: "hidden",
+                            minHeight: 0,
+                          }}>
+                            {/* Row 1: logo + name */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                              <TeamAv team={team} size={41} />
+                              <div style={{ fontSize: 16, fontWeight: 900, color: "#e2e8f0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{team.Name}</div>
+                            </div>
+                            {/* Row 2: players + balance — never overlapping */}
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", fontFamily: "monospace", flexShrink: 0 }}>{team.squadPlayers?.length || 0} players</div>
+                              <div style={{ fontSize: 23, fontWeight: 900, color: "#facc15", fontFamily: "'Courier New', monospace", lineHeight: 1, textShadow: "0 0 18px rgba(250,204,21,0.5)", textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmt(bal)}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -441,8 +521,8 @@ export default function LiveScreen() {
                 )}
               </div>
 
-              {/* ── RIGHT: Timer (top) + Bid amount (big, yellow) + Leading team ── */}
-              <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "center", gap: 20, marginLeft: 36, minWidth: 220 }}>
+              {/* ── RIGHT: Timer (top) + Bid amount (big, yellow) + Leading team — hidden when no player ── */}
+              {player && <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "center", gap: 20, marginLeft: 36, minWidth: 220 }}>
 
                 {/* Timer */}
                 {auctionState === "bidding" && (
@@ -487,11 +567,10 @@ export default function LiveScreen() {
                     <div style={{ fontSize: 22 }}>🔨</div>
                   </div>
                 )}
-              </div>
+              </div>}
             </div>
 
-            {/* ══ BOTTOM TEAM BAR ══════════════════════════════════════════ */}
-            {/* <TeamBar teams={teams} leadingTeam={leadingTeam} auctionState={auctionState} /> */}
+            {/* ══ BOTTOM TEAM BAR — removed ══════════════════════════════ */}
           </div>
         )}
 

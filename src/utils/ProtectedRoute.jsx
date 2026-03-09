@@ -14,6 +14,14 @@ const ProtectedRoute = () => {
 
         const data = await res.json();
 
+        if (data.valid === false) {
+  // delete cookie
+  document.cookie = "license=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+
+  setIsAuthenticated(false);
+  return;
+}
+        
         setIsAuthenticated(data.valid);
       } catch (err) {
         console.error(err);
